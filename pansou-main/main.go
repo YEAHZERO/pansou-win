@@ -102,7 +102,6 @@ import (
 	_ "pansou/plugin/zxzj"
 	_ "pansou/plugin/qingying"
 	_ "pansou/plugin/kkv"
-	_ "pansou/plugin/pioz"
 )
 
 // 全局缓存写入管理器
