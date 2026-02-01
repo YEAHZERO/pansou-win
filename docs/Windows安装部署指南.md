@@ -15,7 +15,7 @@
 
 ## 🚀 快速开始（推荐）
 
-### 方法一：源码编译（最简单）
+### 源码编译
 
 ```cmd
 # 1. 下载项目
@@ -27,16 +27,6 @@ go build -o pansou.exe
 
 # 3. 启动服务
 start.bat
-```
-
-### 方法二：Docker 部署
-
-```cmd
-# 拉取并运行
-docker run -d --name pansou -p 8889:8889 ghcr.io/fish2018/pansou:latest
-
-# 测试服务
-curl http://localhost:8889/api/health
 ```
 
 ---

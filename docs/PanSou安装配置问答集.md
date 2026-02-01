@@ -50,25 +50,20 @@
 
 ### Q: 在 Windows 上有哪些安装方式？
 
-**A**: PanSou 在 Windows 上支持多种安装方式：
+**A**: PanSou 在 Windows 上支持以下安装方式：
 
-1. **Docker 安装**（最简单）
-   ```cmd
-   docker run -d --name pansou -p 8888:8888 ghcr.io/fish2018/pansou:latest
-   ```
-
-2. **源码编译安装**（推荐，灵活性高）
+1. **源码编译安装**（推荐，灵活性高）
    ```cmd
    git clone https://github.com/fish2018/pansou.git
    cd pansou
    go build -o pansou.exe .
    ```
 
-3. **预编译二进制**（简单快速）
+2. **预编译二进制**（简单快速）
    - 从 GitHub Releases 下载 `pansou-windows-amd64.exe`
    - 重命名为 `pansou.exe`
 
-### Q: 不想使用 Docker 和 MCP 方式，如何安装？
+### Q: 如何进行源码编译安装？
 
 **A**: 推荐使用源码编译安装，步骤如下：
 

@@ -14,17 +14,7 @@
 
 ## 🚀 本地部署
 
-### Docker 部署（推荐）
-
-```bash
-# 启动服务
-docker run -d --name pansou -p 8888:8888 ghcr.io/fish2018/pansou:latest
-
-# 验证服务
-curl http://localhost:8888/api/health
-```
-
-### Windows 源码部署
+### 源码部署
 
 ```cmd
 # 克隆项目
@@ -715,7 +705,7 @@ python search.py "Python教程" --cloud-types baidu,aliyun --limit 5
 现在你可以通过纯 HTTP API 方式使用 PanSou：
 
 1. **直接调用官方 API**: `https://so.252035.xyz`
-2. **本地部署服务**: Docker 或源码编译
+2. **本地部署服务**: 源码编译
 3. **多种编程语言**: Python、JavaScript、PowerShell 等
 4. **Web 前端集成**: HTML + JavaScript
 5. **命令行工具**: 自定义脚本

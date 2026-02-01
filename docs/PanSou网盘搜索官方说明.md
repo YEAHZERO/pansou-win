@@ -27,53 +27,26 @@ PanSou 还提供了一个基于 [Model Context Protocol (MCP)](https://modelcont
 在 Github 上先[![Fork me on GitHub](https://raw.githubusercontent.com/fishforks/fish2018/refs/heads/main/forkme.png)](https://github.com/fish2018/pansou/fork)
 本项目，并点上 Star !!!
 
-### 使用Docker部署
-[qqpd搜索插件文档](plugin/qqpd/README.md)  
-[gying搜索插件文档](plugin/gying/README.md)   
-[weibo搜索插件文档](plugin/weibo/README.md)   
-[常见问题总结](https://github.com/fish2018/pansou/issues/46)  
-[TG/QQ频道/插件/微博](https://github.com/fish2018/pansou/issues/4)
-
-#### **1、前后端集成版**
-
-##### 直接使用Docker命令
-
-一键启动，开箱即用
-
-```
-docker run -d --name pansou -p 80:80 ghcr.io/fish2018/pansou-web
-```
-
-##### 使用Docker Compose（推荐）
-```
-# 下载配置文件
-curl -o docker-compose.yml https://raw.githubusercontent.com/fish2018/pansou-web/refs/heads/main/docker-compose.yml
-
-# 启动服务
-docker-compose up -d
-
-# 查看日志
-docker-compose logs -f
-```
-
-#### **2、纯后端API版**
-
-##### 直接使用Docker命令
+### 源码编译部署
 
 ```bash
-docker run -d --name pansou -p 8888:8888 ghcr.io/fish2018/pansou:latest
+# 克隆项目
+git clone https://github.com/fish2018/pansou.git
+cd pansou
+
+# 下载依赖
+go mod download
+
+# 编译
+go build -o pansou.exe .  # Windows
+go build -o pansou .      # Linux/macOS
+
+# 启动
+.\pansou.exe  # Windows
+./pansou      # Linux/macOS
 ```
 
-##### 使用Docker Compose（推荐）
-
-```bash
-# 下载配置文件
-curl -o docker-compose.yml  https://raw.githubusercontent.com/fish2018/pansou/refs/heads/main/docker-compose.yml
-
-# 启动服务
-docker-compose up -d
-
-# 访问服务
+### 配置说明
 http://localhost:8888
 ```
 
@@ -124,11 +97,35 @@ docker run -d --name pansou -p 8888:8888 \
   -e AUTH_TOKEN_EXPIRY=24 \
   ghcr.io/fish2018/pansou:latest
 
+### 认证配置
+
+通过环境变量配置认证：
+
+**Windows 配置：**
+
+```cmd
+set AUTH_ENABLED=true
+set AUTH_USERS=admin:admin123
+pansou.exe
+
+REM 配置多个用户
+set AUTH_ENABLED=true
+set AUTH_USERS=admin:pass123,user1:pass456,user2:pass789
+pansou.exe
+```
+
+**Linux/macOS 配置：**
+
+```bash
+# 启用认证并配置单个用户
+export AUTH_ENABLED=true
+export AUTH_USERS=admin:admin123
+./pansou
+
 # 配置多个用户
-docker run -d --name pansou -p 8888:8888 \
-  -e AUTH_ENABLED=true \
-  -e AUTH_USERS=admin:pass123,user1:pass456,user2:pass789 \
-  ghcr.io/fish2018/pansou:latest
+export AUTH_ENABLED=true
+export AUTH_USERS=admin:pass123,user1:pass456,user2:pass789
+./pansou
 ```
 
 **认证API接口：**
