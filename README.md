@@ -1,658 +1,419 @@
-# PanSou 网盘搜索API
+# PanSou 文档中心
 
-PanSou是一个高性能的网盘资源搜索API服务，支持TG搜索和自定义插件搜索。系统设计以性能和可扩展性为核心，支持并发搜索、结果智能排序和网盘类型分类。
+> **最后更新**: 2025-01-31 | **文档总数**: 15 | **版本**: v3.0
 
-[//]: # (MCP服务文档: [MCP-SERVICE.md]&#40;docs/MCP-SERVICE.md&#41;)
+---
 
+## 🎯 快速导航
 
-## 特性（[详见系统设计文档](docs/%E7%B3%BB%E7%BB%9F%E5%BC%80%E5%8F%91%E8%AE%BE%E8%AE%A1%E6%96%87%E6%A1%A3.md)）
+### 🚀 新用户快速开始
 
-- **高性能搜索**：并发执行多个TG频道及异步插件搜索，显著提升搜索速度；工作池设计，高效管理并发任务
-- **网盘类型分类**：自动识别多种网盘链接，按类型归类展示
-- **智能排序**：基于插件等级、时间新鲜度和优先关键词的多维度综合排序算法
-- **异步插件系统**：支持通过插件扩展搜索来源，支持"尽快响应，持续处理"的异步搜索模式，解决了某些搜索源响应时间长的问题。详情参考[**插件开发指南**](docs/插件开发指南.md)
-- **二级缓存**：分片内存+分片磁盘缓存机制，大幅提升重复查询速度和并发性能  
+**推荐阅读顺序**：
+1. [Windows安装部署指南.md](Windows安装部署指南.md) ⭐⭐⭐⭐⭐ - 完整的安装和部署指南
+2. [搜索源配置说明.md](搜索源配置说明.md) ⭐⭐⭐⭐⭐ - 配置搜索源和插件
+3. [PanSou安装配置问答集.md](PanSou安装配置问答集.md) ⭐⭐⭐⭐⭐ - 常见问题解答
 
-## MCP 服务
+### 👨‍💻 开发者指南
 
-PanSou 还提供了一个基于 [Model Context Protocol (MCP)](https://modelcontextprotocol.io) 的服务，可以将搜索功能集成到 Claude Desktop 等支持 MCP 的应用中。详情请参阅 [MCP 服务文档](docs/MCP-SERVICE.md)。
+**推荐阅读顺序**：
+1. [新增插件和重新部署流程.md](新增插件和重新部署流程.md) ⭐⭐⭐⭐⭐ - 完整的插件开发流程
+2. [插件开发指南.md](插件开发指南.md) ⭐⭐⭐⭐ - 插件开发规范
+3. [pioz插件实现说明.md](pioz插件实现说明.md) ⭐⭐⭐⭐ - 实战案例参考
 
-## 支持的网盘类型
+### 🔧 配置和使用
 
-百度网盘 (`baidu`)、阿里云盘 (`aliyun`)、夸克网盘 (`quark`)、天翼云盘 (`tianyi`)、UC网盘 (`uc`)、移动云盘 (`mobile`)、115网盘 (`115`)、PikPak (`pikpak`)、迅雷网盘 (`xunlei`)、123网盘 (`123`)、磁力链接 (`magnet`)、电驴链接 (`ed2k`)、其他 (`others`)
+**推荐阅读顺序**：
+1. [插件配置说明.md](插件配置说明.md) ⭐⭐⭐⭐ - 插件参数配置
+2. [纯API使用指南.md](纯API使用指南.md) ⭐⭐⭐⭐ - API 使用说明
+3. [系统开发设计文档.md](系统开发设计文档.md) ⭐⭐⭐ - 系统架构
 
-## 快速开始
+### 📝 文档维护
 
-在 Github 上先[![Fork me on GitHub](https://raw.githubusercontent.com/fishforks/fish2018/refs/heads/main/forkme.png)](https://github.com/fish2018/pansou/fork)
-本项目，并点上 Star !!!
+**推荐阅读顺序**：
+1. [文档管理指南.md](文档管理指南.md) ⭐⭐⭐⭐ - 文档管理和自动化
+2. [文档系统快速参考.md](文档系统快速参考.md) ⭐⭐⭐ - 快速参考卡片
+3. [文档系统架构图.md](文档系统架构图.md) ⭐⭐⭐ - 系统架构可视化
 
-### 使用Docker部署
-[qqpd搜索插件文档](plugin/qqpd/README.md)  
-[gying搜索插件文档](plugin/gying/README.md)   
-[weibo搜索插件文档](plugin/weibo/README.md)   
-[常见问题总结](https://github.com/fish2018/pansou/issues/46)  
-[TG/QQ频道/插件/微博](https://github.com/fish2018/pansou/issues/4)
+---
 
-#### **1、前后端集成版**
+## 📚 完整文档列表
 
-##### 直接使用Docker命令
+### 🚀 安装部署（1篇）
 
-一键启动，开箱即用
+| 文档 | 说明 | 推荐指数 |
+|------|------|----------|
+| [Windows安装部署指南.md](Windows安装部署指南.md) | Windows 完整安装和部署指南 | ⭐⭐⭐⭐⭐ |
 
-```
-docker run -d --name pansou -p 80:80 ghcr.io/fish2018/pansou-web
-```
+**包含内容**：
+- 系统要求
+- 快速开始（源码编译、Docker部署）
+- 详细安装步骤
+- 配置说明（端口、插件、认证、性能）
+- API 使用（健康检查、登录、搜索）
+- 常见问题（编译失败、端口占用、防火墙等）
+- 性能优化
+- 重新部署（自动部署、手动部署）
 
-##### 使用Docker Compose（推荐）
-```
-# 下载配置文件
-curl -o docker-compose.yml https://raw.githubusercontent.com/fish2018/pansou-web/refs/heads/main/docker-compose.yml
+---
 
-# 启动服务
-docker-compose up -d
+### 🔧 配置和使用（3篇）
 
-# 查看日志
-docker-compose logs -f
-```
+| 文档 | 说明 | 推荐指数 |
+|------|------|----------|
+| [搜索源配置说明.md](搜索源配置说明.md) | Telegram 频道和插件配置 | ⭐⭐⭐⭐⭐ |
+| [插件配置说明.md](插件配置说明.md) | 插件详细配置方法 | ⭐⭐⭐⭐ |
+| [纯API使用指南.md](纯API使用指南.md) | API 使用说明和示例 | ⭐⭐⭐⭐ |
 
-#### **2、纯后端API版**
+---
 
-##### 直接使用Docker命令
+### 🔌 插件开发（3篇）
 
-```bash
-docker run -d --name pansou -p 8888:8888 ghcr.io/fish2018/pansou:latest
-```
+| 文档 | 说明 | 推荐指数 |
+|------|------|----------|
+| [新增插件和重新部署流程.md](新增插件和重新部署流程.md) | ⭐ 完整的插件开发和部署流程 | ⭐⭐⭐⭐⭐ |
+| [插件开发指南.md](插件开发指南.md) | 插件开发规范和最佳实践 | ⭐⭐⭐⭐ |
+| [pioz插件实现说明.md](pioz插件实现说明.md) | pioz 插件技术实现详解 | ⭐⭐⭐⭐ |
 
-##### 使用Docker Compose（推荐）
+**插件开发核心内容**：
+- ✅ 完整的开发流程（4个阶段、10个详细步骤）
+- ✅ 如何分析目标网站（使用 F12 开发者工具）
+- ✅ 完整的代码模板（可直接复制使用）
+- ✅ 注册和配置步骤
+- ✅ 两种部署方案（自动 + 手动）
+- ✅ 验证测试方法（健康检查、API测试、性能测试）
+- ✅ 最佳实践（开发、测试、部署、维护）
 
-```bash
-# 下载配置文件
-curl -o docker-compose.yml  https://raw.githubusercontent.com/fish2018/pansou/refs/heads/main/docker-compose.yml
+---
 
-# 启动服务
-docker-compose up -d
+### 🏗️ 系统架构（1篇）
 
-# 访问服务
-http://localhost:8888
-```
+| 文档 | 说明 | 推荐指数 |
+|------|------|----------|
+| [系统开发设计文档.md](系统开发设计文档.md) | 系统架构和设计文档 | ⭐⭐⭐ |
 
-### 从源码安装
+---
 
-#### 环境要求
+### 🌐 服务集成（2篇）
 
-- Go 1.18+
-- 可选：SOCKS5代理（用于访问受限地区的Telegram站点）
+| 文档 | 说明 | 推荐指数 |
+|------|------|----------|
+| [MCP-SERVICE.md](MCP-SERVICE.md) | MCP 服务配置说明 | ⭐⭐⭐ |
+| [官方服务连接指南.md](官方服务连接指南.md) | 连接官方服务 | ⭐⭐⭐ |
 
-1. 克隆仓库
+---
 
-```bash
-git clone https://github.com/fish2018/pansou.git
-cd pansou
-```
+### ❓ 问答帮助（1篇）
 
-2. 配置环境变量（可选）
+| 文档 | 说明 | 推荐指数 |
+|------|------|----------|
+| [PanSou安装配置问答集.md](PanSou安装配置问答集.md) | 常见问题解答（FAQ） | ⭐⭐⭐⭐⭐ |
 
-#### 基础配置
+---
 
-| 环境变量 | 描述 | 默认值 | 说明 |
-|----------|------|--------|------|
-| **PORT** | 服务端口 | `8888` | 修改服务监听端口 |
-| **PROXY** | SOCKS5代理 | 无 | 如：`PROXY=socks5://127.0.0.1:1080` |
-| **HTTPS_PROXY/HTTP_PROXY** | HTTPS/HTTP代理 | 无 | 如：`HTTPS_PROXY=http://127.0.0.1:1080`,`HTTP_PROXY=http://127.0.0.1:1080` |
-| **CHANNELS** | 默认搜索的TG频道 | `tgsearchers3` | 多个频道用逗号分隔 |
-| **ENABLED_PLUGINS** | 指定启用插件，多个插件用逗号分隔 | 无 | 必须显式指定 |
+### 📝 文档维护（4篇）
 
-#### 认证配置（可选）
+| 文档 | 说明 | 推荐指数 |
+|------|------|----------|
+| [文档管理指南.md](文档管理指南.md) | 文档管理和自动化机制 | ⭐⭐⭐⭐ |
+| [文档系统快速参考.md](文档系统快速参考.md) | 文档系统快速参考卡片 | ⭐⭐⭐ |
+| [文档系统架构图.md](文档系统架构图.md) | 文档系统可视化架构图 | ⭐⭐⭐ |
+| [文档改进总结.md](文档改进总结.md) | 文档改进历史和变更说明 | ⭐⭐⭐ |
 
-PanSou支持可选的安全认证功能，默认关闭。开启后，所有API接口（除登录接口外）都需要提供有效的JWT Token。详见[认证系统设计文档](docs/认证系统设计.md)。
+**文档系统特色**：
+- ✅ 自动归类 - 新文档自动识别分类
+- ✅ 自动更新 - 修改文档自动更新索引
+- ✅ 智能识别 - 根据内容判断分类
+- ✅ 主目录移动 - 主目录创建的文档自动移动到 docs
+- ✅ 手动工具 - 提供 update-docs-index.bat 手动更新
 
-| 环境变量 | 描述 | 默认值 | 说明 |
-|----------|------|--------|------|
-| **AUTH_ENABLED** | 是否启用认证 | `false` | 设置为`true`启用认证功能 |
-| **AUTH_USERS** | 用户账号配置 | 无 | 格式：`user1:pass1,user2:pass2` |
-| **AUTH_TOKEN_EXPIRY** | Token有效期（小时） | `24` | JWT Token的有效时长 |
-| **AUTH_JWT_SECRET** | JWT签名密钥 | 自动生成 | 用于签名Token，建议手动设置 |
+---
 
-**认证配置示例：**
+## 🎯 按场景查找文档
 
-```bash
-# 启用认证并配置单个用户
-docker run -d --name pansou -p 8888:8888 \
-  -e AUTH_ENABLED=true \
-  -e AUTH_USERS=admin:admin123 \
-  -e AUTH_TOKEN_EXPIRY=24 \
-  ghcr.io/fish2018/pansou:latest
+### 场景 1️⃣: 我是新用户，想快速部署
 
-# 配置多个用户
-docker run -d --name pansou -p 8888:8888 \
-  -e AUTH_ENABLED=true \
-  -e AUTH_USERS=admin:pass123,user1:pass456,user2:pass789 \
-  ghcr.io/fish2018/pansou:latest
-```
+**推荐路径**：
+1. 📖 阅读 [Windows安装部署指南.md](Windows安装部署指南.md)
+2. 🔧 按照"快速开始"部分操作
+3. ✅ 访问 http://localhost:8889/api/health
 
-**认证API接口：**
+**预计时间**: 10-20 分钟
 
-- `POST /api/auth/login` - 用户登录，获取Token
-- `POST /api/auth/verify` - 验证Token有效性
-- `POST /api/auth/logout` - 退出登录（客户端删除Token）
+**关键步骤**：
+```batch
+# 1. 编译项目
+go build -o pansou.exe
 
-**使用Token调用API：**
+# 2. 启动服务
+start.bat
 
-```bash
-# 1. 登录获取Token
-curl -X POST http://localhost:8888/api/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"admin123"}'
-
-# 响应：{"token":"eyJhbGc...","expires_at":1234567890,"username":"admin"}
-
-# 2. 使用Token调用搜索API
-curl -X POST http://localhost:8888/api/search \
-  -H "Authorization: Bearer eyJhbGc..." \
-  -H "Content-Type: application/json" \
-  -d '{"kw":"速度与激情"}'
+# 3. 验证安装
+curl http://localhost:8889/api/health
 ```
 
-#### 高级配置（默认值即可）
+---
 
-<details>
-<summary>点击展开高级配置选项（通常不需要修改）</summary>
+### 场景 2️⃣: 搜索结果太少，想增加搜索源
 
-| 环境变量 | 描述 | 默认值 |
-|----------|------|--------|
-| CONCURRENCY | 并发搜索数 | 自动计算 |
-| CACHE_TTL | 缓存有效期（分钟） | `60` |
-| CACHE_MAX_SIZE | 最大缓存大小(MB) | `100` |
-| PLUGIN_TIMEOUT | 插件超时时间(秒) | `30` |
-| ASYNC_RESPONSE_TIMEOUT | 快速响应超时(秒) | `4` |
-| ASYNC_LOG_ENABLED | 异步插件详细日志 | `true` | 
-| CACHE_PATH | 缓存文件路径 | `./cache` |
-| SHARD_COUNT | 缓存分片数量 | `8` |
-| CACHE_WRITE_STRATEGY | 缓存写入策略(immediate/hybrid) | `hybrid` |
-| ENABLE_COMPRESSION | 是否启用压缩 | `false` |
-| MIN_SIZE_TO_COMPRESS | 最小压缩阈值(字节) | `1024` |
-| GC_PERCENT | Go GC触发百分比 | `50` |
-| ASYNC_MAX_BACKGROUND_WORKERS | 最大后台工作者数量 | CPU核心数×5 |
-| ASYNC_MAX_BACKGROUND_TASKS | 最大后台任务数量 | 工作者数×5 |
-| ASYNC_CACHE_TTL_HOURS | 异步缓存有效期(小时) | `1` |
-| ASYNC_PLUGIN_ENABLED | 异步插件是否启用 | `true` |
-| HTTP_READ_TIMEOUT | HTTP读取超时(秒) | 自动计算 |
-| HTTP_WRITE_TIMEOUT | HTTP写入超时(秒) | 自动计算 |
-| HTTP_IDLE_TIMEOUT | HTTP空闲超时(秒) | `120` |
-| HTTP_MAX_CONNS | HTTP最大连接数 | 自动计算 |
+**推荐路径**：
+1. 📖 阅读 [搜索源配置说明.md](搜索源配置说明.md)
+2. ✏️ 编辑 `start.bat` 添加频道和插件
+3. 🔄 重启服务
+4. ✅ 测试搜索结果
 
-</details>
+**配置示例**：
+```batch
+# Telegram 频道配置
+set CHANNELS=tgsearchers3,tgsearchers4,Aliyun_4K_Movies,bdbdndn11,yunpanx
 
-3. 构建
-
-```linux
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -extldflags '-static'" -o pansou .
+# 插件配置（pioz 优先）
+set ENABLED_PLUGINS=pioz,labi,zhizhen,shandian,duoduo,muou,wanou
 ```
 
-4. 运行
+**预计时间**: 5-10 分钟
 
-```bash
-./pansou
+---
+
+### 场景 3️⃣: 我想开发新的搜索插件 ⭐
+
+**推荐路径**（按顺序阅读）：
+
+1. 📖 **详细阅读** [新增插件和重新部署流程.md](新增插件和重新部署流程.md) ⭐⭐⭐
+   - 完整的 4 个阶段、10 个步骤
+   - 如何分析目标网站
+   - 如何使用浏览器开发者工具（F12）
+   - 完整的代码模板（可直接复制）
+   - 注册和配置步骤
+   - 自动部署 vs 手动部署
+   - 验证测试方法
+
+2. 📚 **参考规范** [插件开发指南.md](插件开发指南.md)
+   - 插件开发规范
+   - 最佳实践
+   - 性能优化
+
+3. 💡 **查看案例** [pioz插件实现说明.md](pioz插件实现说明.md)
+   - 实际案例分析
+   - 双模式解析实现
+   - 完整代码示例
+
+4. 💻 **开始开发**
+   - 使用文档中的代码模板
+   - 参考 `plugin/pioz/pioz.go`
+   - 按照流程逐步实现
+
+**开发流程概览**：
+```
+阶段一：准备工作 (10-30分钟)
+  1. 分析目标网站（使用 F12 开发者工具）
+  2. 确定技术方案（JSON API / HTML / 双模式）
+  ↓
+阶段二：开发插件 (30-60分钟)
+  3. 创建插件文件
+  4. 实现搜索逻辑（复制模板）
+  5. 本地测试
+  ↓
+阶段三：集成配置 (5分钟)
+  6. 注册插件（main.go）
+  7. 配置启用（start.bat）
+  ↓
+阶段四：编译部署 (10-20分钟)
+  8. 编译项目
+  9. 重新部署（运行 deploy.bat）
+  10. 生产验证
 ```
 
-### 其他配置参考
+**预计时间**: 1-2 小时（首次开发）
 
-<details>
-<summary>点击展开 supervisor 配置参考</summary>
+---
 
-```
-[program:pansou]
-environment=PORT=8888,CHANNELS="tgsearchers4,Aliyun_4K_Movies,bdbdndn11,yunpanx,bsbdbfjfjff,yp123pan,sbsbsnsqq,yunpanxunlei,tianyifc,BaiduCloudDisk,txtyzy,peccxinpd,gotopan,PanjClub,kkxlzy,baicaoZY,MCPH01,bdwpzhpd,ysxb48,jdjdn1111,yggpan,MCPH086,zaihuayun,Q66Share,Oscar_4Kmovies,ucwpzy,shareAliyun,alyp_1,dianyingshare,Quark_Movies,XiangxiuNBB,ydypzyfx,ucquark,xx123pan,yingshifenxiang123,zyfb123,tyypzhpd,tianyirigeng,cloudtianyi,hdhhd21,Lsp115,oneonefivewpfx,qixingzhenren,taoxgzy,Channel_Shares_115,tyysypzypd,vip115hot,wp123zy,yunpan139,yunpan189,yunpanuc,yydf_hzl,leoziyuan,pikpakpan,Q_dongman,yoyokuakeduanju",ENABLED_PLUGINS="labi,zhizhen,shandian,duoduo,muou"
-command=/home/work/pansou/pansou
-directory=/home/work/pansou
-autostart=true
-autorestart=true
-startsecs=5
-startretries=3
-exitcodes=0
-stopwaitsecs=10
-stopasgroup=true
-killasgroup=true
-```
+### 场景 4️⃣: 我修改了代码，需要重新部署
 
-</details>
+**推荐路径**：
 
-<details>
-<summary>点击展开 nginx 配置参考</summary>
+**方案一：自动部署（推荐）⭐**
+1. 📖 参考 [Windows安装部署指南.md](Windows安装部署指南.md) 的"重新部署"部分
+2. 💻 编译项目：`go build -o pansou.exe`
+3. 🚀 运行自动部署：`deploy.bat`
+4. ✅ 脚本会自动完成所有步骤
 
-```
-server {
-    listen 80;
-    server_name pansou.252035.xyz;
+**方案二：手动部署**
+1. 🛑 停止服务：`taskkill /F /IM pansou.exe`
+2. 💾 备份文件：`copy pansou.exe pansou.exe.backup`
+3. 📁 复制新文件到部署目录
+4. 🚀 启动服务：`start.bat`
 
-    # 将 HTTP 重定向到 HTTPS
-    return 301 https://$host$request_uri;
-}
+**预计时间**: 5-10 分钟（自动）/ 10-20 分钟（手动）
 
-limit_req_zone $binary_remote_addr zone=api_limit:10m rate=60r/m;
+---
 
-server {
-    listen 443 ssl http2;
-    server_name pansou.252035.xyz;
+### 场景 5️⃣: 我想配置插件参数
 
-    access_log /home/work/logs/pansou.log;
+**推荐路径**：
+1. 📖 阅读 [插件配置说明.md](插件配置说明.md)
+2. ✏️ 编辑 `start.bat` 中的环境变量
+3. � 重启服务
 
-    # 证书和密钥路径
-    ssl_certificate /etc/letsencrypt/live/252035.xyz/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/252035.xyz/privkey.pem;
+**常用配置**：
+```batch
+REM 端口配置
+set PORT=8889
 
-    # 增强 SSL 安全性
-    ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_ciphers EECDH+AESGCM:EDH+AESGCM:AES256+EECDH:AES256+EDH;
-    ssl_prefer_server_ciphers on;
+REM 插件优先级（pioz 优先）
+set ENABLED_PLUGINS=pioz,labi,zhizhen,shandian,duoduo
 
-    # 后端代理，应用限流
-    location / {
-        # 应用限流规则
-        limit_req zone=api_limit burst=10 nodelay;
-        # 当超过限制时返回 429 状态码
-        limit_req_status 429;
+REM 性能配置
+set CONCURRENCY=25
+set CACHE_MAX_SIZE=300
+set CACHE_TTL=90
 
-        proxy_pass http://127.0.0.1:8888;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
+REM 认证配置
+set AUTH_ENABLED=true
+set AUTH_USERS=admin:123456
 ```
 
-</details>
+**预计时间**: 5 分钟
 
-## API文档
+---
 
-### 认证说明
+### 场景 6️⃣: 我遇到了问题
 
-当启用认证功能（`AUTH_ENABLED=true`）时，除登录和健康检测接口外的所有API接口都需要提供有效的JWT Token。
+**推荐路径**：
+1. 📖 查看 [PanSou安装配置问答集.md](PanSou安装配置问答集.md)
+2. 🔍 查看对应功能的文档
+3. � 查看服务器日志
 
-**请求头格式**：
-```
-Authorization: Bearer <your-jwt-token>
-```
+**常见问题快速解决**：
+```batch
+REM 检查端口占用
+netstat -an | findstr :8889
 
-**获取Token**：
+REM 检查进程
+tasklist | findstr pansou.exe
 
-1. 调用登录接口获取Token（详见下方[认证API](#认证API)）
-2. 在后续所有API请求的Header中添加`Authorization: Bearer <token>`
-3. Token过期后需要重新登录获取新Token
+REM 重新下载依赖
+go mod download
 
-**示例**：
-```bash
-# 未启用认证时
-curl -X POST http://localhost:8888/api/search \
-  -H "Content-Type: application/json" \
-  -d '{"kw":"速度与激情"}'
+REM 清理缓存
+go clean -modcache
 
-# 启用认证时
-curl -X POST http://localhost:8888/api/search \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer eyJhbGc..." \
-  -d '{"kw":"速度与激情"}'
+REM 清理搜索缓存
+rmdir /s /q cache
 ```
 
-### 认证API
+---
 
-#### 用户登录
+## � 使用指南
 
-获取JWT Token用于后续API调用。
+### 👤 对于新用户
 
-**接口地址**：`/api/auth/login`  
-**请求方法**：`POST`  
-**Content-Type**：`application/json`  
-**是否需要认证**：否
+1. 访问 [docs/README.md](README.md)（本文档）
+2. 选择 **场景 1: 我是新用户，想快速部署**
+3. 按照文档步骤操作
+4. 访问 http://localhost:8889
 
-**请求参数**：
+### 👨‍💻 对于开发者
 
-| 参数名 | 类型 | 必填 | 描述 |
-|--------|------|------|------|
-| username | string | 是 | 用户名 |
-| password | string | 是 | 密码 |
+1. **重点阅读** [新增插件和重新部署流程.md](新增插件和重新部署流程.md) ⭐
+2. 查看 [pioz插件实现说明.md](pioz插件实现说明.md) 作为案例
+3. 使用文档中的代码模板开发
+4. 参考 `plugin/pioz/pioz.go` 完整实现
 
-**请求示例**：
-```bash
-curl -X POST http://localhost:8888/api/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"admin123"}'
-```
+### � 对于运维人员
 
-**成功响应**：
-```json
-{
-  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "expires_at": 1234567890,
-  "username": "admin"
-}
-```
+1. 使用 [Windows安装部署指南.md](Windows安装部署指南.md) 的"重新部署"部分
+2. 运行 `deploy.bat` 自动部署
+3. 监控服务日志和性能
 
-**错误响应**：
-```json
-{
-  "error": "用户名或密码错误"
-}
-```
+### 📝 对于文档维护者
 
-#### 验证Token
+1. 阅读 [文档管理指南.md](文档管理指南.md)
+2. 查看 [文档系统快速参考.md](文档系统快速参考.md)
+3. 了解自动归类和更新机制
+4. 遵循文档编写规范
 
-验证当前Token是否有效。
+---
 
-**接口地址**：`/api/auth/verify`  
-**请求方法**：`POST`  
-**是否需要认证**：是
+## 🔗 相关链接
 
-**请求示例**：
-```bash
-curl -X POST http://localhost:8888/api/auth/verify \
-  -H "Authorization: Bearer eyJhbGc..."
-```
+- **项目主页**: [GitHub](https://github.com/fish2018/pansou)
+- **API 客户端示例**: [api-client-examples/](../api-client-examples/)
+- **插件目录**: [plugin/](../plugin/)
+- **部署脚本**: [deploy.bat](../deploy.bat)
+- **启动脚本**: [start.bat](../start.bat)
 
-**成功响应**：
-```json
-{
-  "valid": true,
-  "username": "admin"
-}
-```
+---
 
-#### 退出登录
+## � 文档统计
 
-退出当前登录（客户端删除Token即可）。
+| 分类 | 文档数量 | 说明 |
+|------|----------|------|
+| 安装部署 | 1 | 统一的安装指南 |
+| 配置和使用 | 3 | 配置、API使用 |
+| 插件开发 | 3 | 开发流程、规范、案例 |
+| 系统架构 | 1 | 系统设计 |
+| 服务集成 | 2 | MCP、官方服务 |
+| 问答帮助 | 1 | FAQ |
+| 文档维护 | 4 | 管理、参考、架构、改进 |
+| **总计** | **15** | **精简高效** |
 
-**接口地址**：`/api/auth/logout`  
-**请求方法**：`POST`  
-**是否需要认证**：否
+---
 
-**请求示例**：
-```bash
-curl -X POST http://localhost:8888/api/auth/logout
-```
+## 🎉 文档特色
 
-**成功响应**：
-```json
-{
-  "message": "退出成功"
-}
-```
+✅ **结构清晰** - 7大分类，15篇文档，易于查找  
+✅ **场景导航** - 6个常见场景，快速定位  
+✅ **推荐指数** - 标注文档重要程度  
+✅ **完整流程** - 从安装到开发的完整指南  
+✅ **代码模板** - 可直接复制使用的代码  
+✅ **实战案例** - pioz 插件完整实现  
+✅ **最佳实践** - 开发、测试、部署建议  
+✅ **自动化** - 文档自动归类和更新  
 
-### 搜索API
+---
 
-搜索网盘资源。
+## 💡 贡献文档
 
-**接口地址**：`/api/search`  
-**请求方法**：`POST` 或 `GET`  
-**Content-Type**：`application/json`（POST方法）  
-**是否需要认证**：取决于`AUTH_ENABLED`配置
+如果你发现文档有误或需要补充，欢迎：
 
-**POST请求参数**：
+1. 提交 Issue
+2. 提交 Pull Request
+3. 联系维护者
 
-| 参数名 | 类型 | 必填 | 描述 |
-|--------|------|------|------|
-| kw | string | 是 | 搜索关键词 |
-| channels | string[] | 否 | 搜索的频道列表，不提供则使用默认配置 |
-| conc | number | 否 | 并发搜索数量，不提供则自动设置为频道数+插件数+10 |
-| refresh | boolean | 否 | 强制刷新，不使用缓存，便于调试和获取最新数据 |
-| res | string | 否 | 结果类型：all(返回所有结果)、results(仅返回results)、merge(仅返回merged_by_type)，默认为merge |
-| src | string | 否 | 数据来源类型：all(默认，全部来源)、tg(仅Telegram)、plugin(仅插件) |
-| plugins | string[] | 否 | 指定搜索的插件列表，不指定则搜索全部插件 |
-| cloud_types | string[] | 否 | 指定返回的网盘类型列表，支持：baidu、aliyun、quark、tianyi、uc、mobile、115、pikpak、xunlei、123、magnet、ed2k，不指定则返回所有类型 |
-| ext | object | 否 | 扩展参数，用于传递给插件的自定义参数，如{"title_en":"English Title", "is_all":true} |
-| filter | object | 否 | 过滤配置，用于过滤返回结果。格式：{"include":["关键词1","关键词2"],"exclude":["排除词1","排除词2"]}。include为包含关键词列表（OR关系），exclude为排除关键词列表（OR关系） |
+**文档更新流程**：
+- 新增或修改文档后，会自动触发文档归类
+- README.md 会自动更新分类和统计
+- 保持文档索引始终最新
 
-**GET请求参数**：
+---
 
-| 参数名 | 类型 | 必填 | 描述 |
-|--------|------|------|------|
-| kw | string | 是 | 搜索关键词 |
-| channels | string | 否 | 搜索的频道列表，使用英文逗号分隔多个频道，不提供则使用默认配置 |
-| conc | number | 否 | 并发搜索数量，不提供则自动设置为频道数+插件数+10 |
-| refresh | boolean | 否 | 强制刷新，设置为"true"表示不使用缓存 |
-| res | string | 否 | 结果类型：all(返回所有结果)、results(仅返回results)、merge(仅返回merged_by_type)，默认为merge |
-| src | string | 否 | 数据来源类型：all(默认，全部来源)、tg(仅Telegram)、plugin(仅插件) |
-| plugins | string | 否 | 指定搜索的插件列表，使用英文逗号分隔多个插件名，不指定则搜索全部插件 |
-| cloud_types | string | 否 | 指定返回的网盘类型列表，使用英文逗号分隔多个类型，支持：baidu、aliyun、quark、tianyi、uc、mobile、115、pikpak、xunlei、123、magnet、ed2k，不指定则返回所有类型 |
-| ext | string | 否 | JSON格式的扩展参数，用于传递给插件的自定义参数，如{"title_en":"English Title", "is_all":true} |
-| filter | string | 否 | JSON格式的过滤配置，用于过滤返回结果。格式：{"include":["关键词1","关键词2"],"exclude":["排除词1","排除词2"]} |
+## 📅 更新记录
 
-**POST请求示例**：
+### 2025-01-31 v3.0
+- ✅ 合并所有 Windows 安装文档为统一指南
+- ✅ 删除重复和改动记录文档
+- ✅ 精简文档结构（从 28 篇减少到 15 篇）
+- ✅ 优化场景导航（6个场景）
+- ✅ 保留核心安装部署参考文档
+- ✅ 恢复文档系统说明文档（3篇）
 
-```bash
-# 未启用认证
-curl -X POST http://localhost:8888/api/search \
-  -H "Content-Type: application/json" \
-  -d '{
-    "kw": "速度与激情",
-    "channels": ["tgsearchers3", "xxx"],
-    "conc": 2,
-    "refresh": true,
-    "res": "merge",
-    "src": "all",
-    "plugins": ["jikepan"],
-    "cloud_types": ["baidu", "quark"],
-    "ext": {
-      "title_en": "Fast and Furious",
-      "is_all": true
-    }
-  }'
+### 2025-01-31 v2.0
+- ✅ 重新组织文档结构（8 大分类）
+- ✅ 新增场景导航（7 个常见场景）
+- ✅ 添加推荐指数和预计时间
+- ✅ 设置自动归类和更新机制
+- ✅ 创建文档管理指南
+- ✅ 创建自动更新 Hooks
 
-# 启用认证时（需要添加Authorization头）
-curl -X POST http://localhost:8888/api/search \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
-  -d '{
-    "kw": "速度与激情",
-    "res": "merge"
-  }'
+### 2025-01-31 v1.0
+- ✅ 创建文档中心索引
+- ✅ 整理所有文档到 docs 目录
+- ✅ 新增插件开发流程文档
+- ✅ 新增 pioz 插件案例
 
-# 使用过滤器（只返回包含“合集”或“全集”，且不包含“预告”或“花絮”的结果）
-curl -X POST http://localhost:8888/api/search \
-  -H "Content-Type: application/json" \
-  -d '{
-    "kw": "唐朝诡事录",
-    "filter": {
-      "include": ["合集", "全集"],
-      "exclude": ["预告", "花絮"]
-    }
-  }'
-```
+---
 
-**GET请求示例**：
-
-```bash
-# 未启用认证
-curl "http://localhost:8888/api/search?kw=速度与激情&res=merge&src=tg"
-
-# 启用认证时（需要添加Authorization头）
-curl "http://localhost:8888/api/search?kw=速度与激情&res=merge" \
-  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-
-# 使用过滤器（GET方式需要URL编码JSON）
-curl "http://localhost:8888/api/search?kw=唐朝诡事录&filter=%7B%22include%22%3A%5B%22合集%22%2C%22全集%22%5D%2C%22exclude%22%3A%5B%22预告%22%5D%7D"
-```
-
-**成功响应**：
-
-```json
-{
-  "total": 15,
-  "results": [
-    {
-      "message_id": "12345",
-      "unique_id": "channel-12345",
-      "channel": "tgsearchers3",
-      "datetime": "2023-06-10T14:23:45Z",
-      "title": "速度与激情全集1-10",
-      "content": "速度与激情系列全集，1080P高清...",
-      "links": [
-        {
-          "type": "baidu",
-          "url": "https://pan.baidu.com/s/1abcdef",
-          "password": "1234",
-          "datetime": "2023-06-10T14:23:45Z",
-          "work_title": "速度与激情全集1-10"
-        }
-      ],
-      "tags": ["电影", "合集"],
-      "images": [
-        "https://cdn1.cdn-telegram.org/file/xxx.jpg"
-      ]
-    },
-    // 更多结果...
-  ],
-  "merged_by_type": {
-    "baidu": [
-      {
-        "url": "https://pan.baidu.com/s/1abcdef",
-        "password": "1234",
-        "note": "速度与激情全集1-10",
-        "datetime": "2023-06-10T14:23:45Z",
-        "source": "tg:频道名称",
-        "images": [
-          "https://cdn1.cdn-telegram.org/file/xxx.jpg"
-        ]
-      },
-      // 更多百度网盘链接...
-    ],
-    "quark": [
-      {
-        "url": "https://pan.quark.cn/s/xxxx",
-        "password": "",
-        "note": "凡人修仙传",
-        "datetime": "2023-06-10T15:30:22Z",
-        "source": "plugin:插件名",
-        "images": []
-      }
-    ],
-    "aliyun": [
-      // 阿里云盘链接...
-    ]
-    // 更多网盘类型...
-  }
-}
-```
-
-**字段说明**：
-
-**SearchResult对象**：
-- `message_id`: 消息ID
-- `unique_id`: 全局唯一标识符
-- `channel`: 来源频道名称
-- `datetime`: 消息发布时间
-- `title`: 消息标题
-- `content`: 消息内容
-- `links`: 网盘链接数组
-- `tags`: 标签数组（可选）
-- `images`: TG消息中的图片链接数组（可选）
-
-**Link对象**：
-- `type`: 网盘类型（baidu、quark、aliyun等）
-- `url`: 网盘链接地址
-- `password`: 提取码/密码
-- `datetime`: 链接更新时间（可选）
-- `work_title`: 作品标题（可选）
-  - 用于区分同一消息中多个作品的链接
-  - 当一条消息包含≤4个链接时，所有链接使用相同的work_title
-  - 当一条消息包含>4个链接时，系统会智能识别每个链接对应的作品标题
-
-**MergedLink对象**：
-- `url`: 网盘链接地址
-- `password`: 提取码/密码
-- `note`: 资源说明/标题
-- `datetime`: 链接更新时间
-- `source`: 数据来源标识
-  - `tg:频道名称`: 来自Telegram频道
-  - `plugin:插件名`: 来自指定插件
-  - `unknown`: 未知来源
-- `images`: TG消息中的图片链接数组（可选）
-  - 仅在来源为Telegram频道且消息包含图片时出现
-
-
-**错误响应**：
-
-```json
-// 参数错误
-{
-  "code": 400,
-  "message": "关键词不能为空"
-}
-
-// 未授权（启用认证但未提供Token）
-{
-  "error": "未授权：缺少认证令牌",
-  "code": "AUTH_TOKEN_MISSING"
-}
-
-// Token无效或过期
-{
-  "error": "未授权：令牌无效或已过期",
-  "code": "AUTH_TOKEN_INVALID"
-}
-```
-
-### 健康检查
-
-检查API服务是否正常运行。
-
-**接口地址**：`/api/health`  
-**请求方法**：`GET`  
-**是否需要认证**：否（公开接口）
-
-**请求示例**：
-```bash
-curl http://localhost:8888/api/health
-```
-
-**成功响应**：
-
-```json
-{
-  "status": "ok",
-  "auth_enabled": true,
-  "plugins_enabled": true,
-  "plugin_count": 16,
-  "plugins": [
-    "pansearch",
-    "panta", 
-    "qupansou",
-    "hunhepan",
-    "jikepan",
-    "pan666",
-    "panyq",
-    "susu",
-    "xuexizhinan",
-    "hdr4k",
-    "labi",
-    "shandian",
-    "duoduo",
-    "muou",
-    "wanou",
-    "ouge",
-    "zhizhen",
-    "huban"
-  ],
-  "channels_count": 1,
-  "channels": [
-    "tgsearchers3"
-  ]
-}
-```
-
-**字段说明**：
-- `status`: 服务状态，"ok"表示正常
-- `auth_enabled`: 是否启用认证功能
-- `plugins_enabled`: 是否启用插件
-- `plugin_count`: 已启用的插件数量
-- `plugins`: 已启用的插件列表
-- `channels_count`: 配置的频道数量
-- `channels`: 配置的频道列表
-
-## 📄 许可证
-
-本项目采用 MIT 许可证。详情请见 [LICENSE](LICENSE) 文件。
-
-## ⭐ Star 历史
-
-[![Star History Chart](https://api.star-history.com/svg?repos=fish2018/pansou&type=Date)](https://star-history.com/#fish2018/pansou&Date)
+**最后更新**: 2025-01-31  
+**文档版本**: v3.0  
+**维护者**: abcxyzNone  
+**致谢**: PanSou Team
