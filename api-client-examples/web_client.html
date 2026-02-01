@@ -1,0 +1,734 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PanSou 网盘搜索</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            font-weight: 300;
+        }
+
+        .header p {
+            opacity: 0.9;
+            font-size: 1.1em;
+        }
+
+        .search-section {
+            padding: 30px;
+            background: #f8f9fa;
+        }
+
+        .search-form {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+
+        .search-input {
+            flex: 1;
+            min-width: 300px;
+            padding: 15px 20px;
+            border: 2px solid #e9ecef;
+            border-radius: 10px;
+            font-size: 16px;
+            transition: all 0.3s ease;
+        }
+
+        .search-input:focus {
+            outline: none;
+            border-color: #4facfe;
+            box-shadow: 0 0 0 3px rgba(79, 172, 254, 0.1);
+        }
+
+        .search-btn {
+            padding: 15px 30px;
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            min-width: 120px;
+        }
+
+        .search-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(79, 172, 254, 0.3);
+        }
+
+        .search-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .options {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .option-group {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            border: 1px solid #e9ecef;
+        }
+
+        .option-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #495057;
+        }
+
+        .option-group select, .option-group input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ced4da;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+
+        .cloud-types {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .cloud-type-checkbox {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            padding: 5px 10px;
+            background: #f8f9fa;
+            border-radius: 20px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .cloud-type-checkbox:hover {
+            background: #e9ecef;
+        }
+
+        .cloud-type-checkbox input[type="checkbox"] {
+            width: auto;
+        }
+
+        .auth-section {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+
+        .auth-form {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .auth-form input {
+            padding: 8px 12px;
+            border: 1px solid #ced4da;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+
+        .auth-form button {
+            padding: 8px 16px;
+            background: #28a745;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .results-section {
+            padding: 30px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #6c757d;
+            font-size: 18px;
+        }
+
+        .loading::after {
+            content: '';
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #4facfe;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-left: 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            border: 1px solid #f5c6cb;
+        }
+
+        .success {
+            background: #d4edda;
+            color: #155724;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            border: 1px solid #c3e6cb;
+        }
+
+        .cloud-section {
+            margin-bottom: 30px;
+            background: white;
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.08);
+        }
+
+        .cloud-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .cloud-title {
+            font-size: 1.3em;
+            font-weight: 600;
+        }
+
+        .cloud-count {
+            background: rgba(255,255,255,0.2);
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 0.9em;
+        }
+
+        .link-list {
+            padding: 20px;
+        }
+
+        .link-item {
+            padding: 20px;
+            border-bottom: 1px solid #f1f3f4;
+            transition: all 0.3s ease;
+        }
+
+        .link-item:hover {
+            background: #f8f9fa;
+            transform: translateX(5px);
+        }
+
+        .link-item:last-child {
+            border-bottom: none;
+        }
+
+        .link-title {
+            font-size: 1.1em;
+            font-weight: 600;
+            color: #2c3e50;
+            margin-bottom: 10px;
+            line-height: 1.4;
+        }
+
+        .link-url {
+            color: #3498db;
+            text-decoration: none;
+            word-break: break-all;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+            display: block;
+            margin-bottom: 8px;
+            padding: 8px 12px;
+            background: #f8f9fa;
+            border-radius: 5px;
+            transition: all 0.2s ease;
+        }
+
+        .link-url:hover {
+            background: #e9ecef;
+            color: #2980b9;
+        }
+
+        .link-password {
+            display: inline-block;
+            background: #ff6b6b;
+            color: white;
+            padding: 4px 12px;
+            border-radius: 15px;
+            font-size: 0.85em;
+            font-weight: 600;
+            margin-right: 10px;
+        }
+
+        .link-meta {
+            font-size: 0.85em;
+            color: #6c757d;
+            margin-top: 8px;
+        }
+
+        .link-source {
+            background: #17a2b8;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 0.8em;
+            margin-right: 10px;
+        }
+
+        .stats {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .stats h3 {
+            color: #495057;
+            margin-bottom: 10px;
+        }
+
+        .no-results {
+            text-align: center;
+            padding: 60px 20px;
+            color: #6c757d;
+        }
+
+        .no-results h3 {
+            font-size: 1.5em;
+            margin-bottom: 10px;
+        }
+
+        @media (max-width: 768px) {
+            .search-form {
+                flex-direction: column;
+            }
+            
+            .search-input {
+                min-width: auto;
+            }
+            
+            .options {
+                grid-template-columns: 1fr;
+            }
+            
+            .auth-form {
+                flex-direction: column;
+                align-items: stretch;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔍 PanSou 网盘搜索</h1>
+            <p>快速搜索各大网盘资源</p>
+        </div>
+
+        <div class="search-section">
+            <div class="auth-section" id="authSection" style="display: none;">
+                <div class="auth-form">
+                    <span>🔐 需要登录认证：</span>
+                    <input type="text" id="username" placeholder="用户名" value="admin">
+                    <input type="password" id="password" placeholder="密码">
+                    <button onclick="login()">登录</button>
+                    <span id="authStatus"></span>
+                </div>
+            </div>
+
+            <div class="search-form">
+                <input type="text" id="keyword" class="search-input" placeholder="输入搜索关键词，如：速度与激情、Python教程..." />
+                <button onclick="search()" class="search-btn" id="searchBtn">🚀 搜索</button>
+            </div>
+
+            <div class="options">
+                <div class="option-group">
+                    <label>🌐 API 服务地址</label>
+                    <select id="apiUrl">
+                        <option value="https://so.252035.xyz">官方服务 (so.252035.xyz)</option>
+                        <option value="http://localhost:8888">本地服务 (localhost:8888)</option>
+                    </select>
+                </div>
+
+                <div class="option-group">
+                    <label>📊 数据源</label>
+                    <select id="sourceType">
+                        <option value="all">全部来源</option>
+                        <option value="tg">仅 Telegram</option>
+                        <option value="plugin">仅插件</option>
+                    </select>
+                </div>
+
+                <div class="option-group">
+                    <label>📁 网盘类型</label>
+                    <div class="cloud-types">
+                        <label class="cloud-type-checkbox">
+                            <input type="checkbox" value="baidu" checked> 百度网盘
+                        </label>
+                        <label class="cloud-type-checkbox">
+                            <input type="checkbox" value="aliyun" checked> 阿里云盘
+                        </label>
+                        <label class="cloud-type-checkbox">
+                            <input type="checkbox" value="quark" checked> 夸克网盘
+                        </label>
+                        <label class="cloud-type-checkbox">
+                            <input type="checkbox" value="tianyi"> 天翼云盘
+                        </label>
+                        <label class="cloud-type-checkbox">
+                            <input type="checkbox" value="uc"> UC网盘
+                        </label>
+                        <label class="cloud-type-checkbox">
+                            <input type="checkbox" value="115"> 115网盘
+                        </label>
+                        <label class="cloud-type-checkbox">
+                            <input type="checkbox" value="pikpak"> PikPak
+                        </label>
+                        <label class="cloud-type-checkbox">
+                            <input type="checkbox" value="magnet"> 磁力链接
+                        </label>
+                    </div>
+                </div>
+
+                <div class="option-group">
+                    <label>⚡ 其他选项</label>
+                    <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                        <input type="checkbox" id="refreshCache"> 强制刷新缓存
+                    </label>
+                    <input type="number" id="maxResults" placeholder="最大结果数" value="50" min="1" max="200">
+                </div>
+            </div>
+        </div>
+
+        <div class="results-section">
+            <div id="results"></div>
+        </div>
+    </div>
+
+    <script>
+        let authToken = null;
+        let isSearching = false;
+
+        // 网盘类型名称映射
+        const cloudTypeNames = {
+            'baidu': '百度网盘',
+            'aliyun': '阿里云盘',
+            'quark': '夸克网盘',
+            'tianyi': '天翼云盘',
+            'uc': 'UC网盘',
+            'mobile': '移动云盘',
+            '115': '115网盘',
+            'pikpak': 'PikPak',
+            'xunlei': '迅雷网盘',
+            '123': '123网盘',
+            'magnet': '磁力链接',
+            'ed2k': '电驴链接',
+            'others': '其他网盘'
+        };
+
+        // 页面加载时检查服务状态
+        window.onload = async function() {
+            await checkServiceStatus();
+        };
+
+        // 检查服务状态
+        async function checkServiceStatus() {
+            const apiUrl = document.getElementById('apiUrl').value;
+            try {
+                const response = await fetch(`${apiUrl}/api/health`);
+                const health = await response.json();
+                
+                if (health.auth_enabled) {
+                    document.getElementById('authSection').style.display = 'block';
+                    showMessage('此服务需要登录认证', 'info');
+                } else {
+                    document.getElementById('authSection').style.display = 'none';
+                }
+                
+                console.log('服务状态:', health);
+            } catch (error) {
+                showMessage(`无法连接到服务: ${error.message}`, 'error');
+            }
+        }
+
+        // 登录函数
+        async function login() {
+            const apiUrl = document.getElementById('apiUrl').value;
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            
+            if (!username || !password) {
+                showMessage('请输入用户名和密码', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${apiUrl}/api/auth/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    authToken = data.token;
+                    document.getElementById('authStatus').innerHTML = `✅ 已登录: ${data.username}`;
+                    showMessage('登录成功！', 'success');
+                } else {
+                    const error = await response.json();
+                    throw new Error(error.error || '登录失败');
+                }
+            } catch (error) {
+                showMessage(`登录失败: ${error.message}`, 'error');
+                document.getElementById('authStatus').innerHTML = '❌ 登录失败';
+            }
+        }
+
+        // 搜索函数
+        async function search() {
+            if (isSearching) return;
+            
+            const keyword = document.getElementById('keyword').value.trim();
+            if (!keyword) {
+                showMessage('请输入搜索关键词', 'error');
+                return;
+            }
+
+            isSearching = true;
+            const searchBtn = document.getElementById('searchBtn');
+            const originalText = searchBtn.textContent;
+            searchBtn.textContent = '搜索中...';
+            searchBtn.disabled = true;
+
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.innerHTML = '<div class="loading">正在搜索，请稍候...</div>';
+
+            try {
+                const apiUrl = document.getElementById('apiUrl').value;
+                const sourceType = document.getElementById('sourceType').value;
+                const refreshCache = document.getElementById('refreshCache').checked;
+                const maxResults = parseInt(document.getElementById('maxResults').value) || 50;
+
+                // 获取选中的网盘类型
+                const cloudTypes = Array.from(document.querySelectorAll('.cloud-types input[type="checkbox"]:checked'))
+                    .map(cb => cb.value);
+
+                const headers = { 'Content-Type': 'application/json' };
+                if (authToken) {
+                    headers['Authorization'] = `Bearer ${authToken}`;
+                }
+
+                const response = await fetch(`${apiUrl}/api/search`, {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify({
+                        kw: keyword,
+                        res: 'merge',
+                        src: sourceType,
+                        cloud_types: cloudTypes.length > 0 ? cloudTypes : undefined,
+                        refresh: refreshCache
+                    })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    displayResults(data, maxResults);
+                } else if (response.status === 401) {
+                    showMessage('认证失败，请重新登录', 'error');
+                    document.getElementById('authSection').style.display = 'block';
+                    resultsDiv.innerHTML = '';
+                } else {
+                    const error = await response.json();
+                    throw new Error(error.message || error.error || '搜索失败');
+                }
+            } catch (error) {
+                showMessage(`搜索失败: ${error.message}`, 'error');
+                resultsDiv.innerHTML = '';
+            } finally {
+                isSearching = false;
+                searchBtn.textContent = originalText;
+                searchBtn.disabled = false;
+            }
+        }
+
+        // 显示搜索结果
+        function displayResults(data, maxResults) {
+            const resultsDiv = document.getElementById('results');
+            
+            if (!data.merged_by_type || Object.keys(data.merged_by_type).length === 0) {
+                resultsDiv.innerHTML = `
+                    <div class="no-results">
+                        <h3>😔 未找到相关资源</h3>
+                        <p>尝试使用不同的关键词或调整搜索选项</p>
+                    </div>
+                `;
+                return;
+            }
+
+            const totalLinks = Object.values(data.merged_by_type).reduce((sum, links) => sum + links.length, 0);
+            const cloudCount = Object.keys(data.merged_by_type).length;
+
+            let html = `
+                <div class="stats">
+                    <h3>🎉 搜索完成</h3>
+                    <p>找到 <strong>${totalLinks}</strong> 个资源链接，涵盖 <strong>${cloudCount}</strong> 种网盘类型</p>
+                </div>
+            `;
+
+            // 按网盘类型显示结果
+            Object.entries(data.merged_by_type).forEach(([cloudType, links]) => {
+                const cloudName = cloudTypeNames[cloudType] || cloudType;
+                const displayLinks = links.slice(0, maxResults);
+                
+                html += `
+                    <div class="cloud-section">
+                        <div class="cloud-header">
+                            <div class="cloud-title">${cloudName}</div>
+                            <div class="cloud-count">${links.length} 个链接</div>
+                        </div>
+                        <div class="link-list">
+                `;
+
+                displayLinks.forEach(link => {
+                    html += `
+                        <div class="link-item">
+                            <div class="link-title">${escapeHtml(link.note || '未知资源')}</div>
+                            <a href="${link.url}" target="_blank" class="link-url">${link.url}</a>
+                            <div>
+                                ${link.password ? `<span class="link-password">🔑 ${link.password}</span>` : ''}
+                                ${link.source ? `<span class="link-source">📍 ${link.source}</span>` : ''}
+                            </div>
+                            ${link.datetime ? `<div class="link-meta">📅 ${formatDate(link.datetime)}</div>` : ''}
+                        </div>
+                    `;
+                });
+
+                if (links.length > maxResults) {
+                    html += `
+                        <div style="text-align: center; padding: 20px; color: #6c757d;">
+                            还有 ${links.length - maxResults} 个链接未显示，请调整最大结果数查看更多
+                        </div>
+                    `;
+                }
+
+                html += `
+                        </div>
+                    </div>
+                `;
+            });
+
+            resultsDiv.innerHTML = html;
+        }
+
+        // 显示消息
+        function showMessage(message, type = 'info') {
+            const resultsDiv = document.getElementById('results');
+            const className = type === 'error' ? 'error' : type === 'success' ? 'success' : 'info';
+            
+            const messageDiv = document.createElement('div');
+            messageDiv.className = className;
+            messageDiv.textContent = message;
+            
+            resultsDiv.insertBefore(messageDiv, resultsDiv.firstChild);
+            
+            // 3秒后自动移除消息
+            setTimeout(() => {
+                if (messageDiv.parentNode) {
+                    messageDiv.parentNode.removeChild(messageDiv);
+                }
+            }, 3000);
+        }
+
+        // HTML 转义
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // 格式化日期
+        function formatDate(dateString) {
+            try {
+                const date = new Date(dateString);
+                return date.toLocaleString('zh-CN');
+            } catch {
+                return dateString;
+            }
+        }
+
+        // 回车搜索
+        document.getElementById('keyword').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter' && !isSearching) {
+                search();
+            }
+        });
+
+        // API 地址变化时重新检查服务状态
+        document.getElementById('apiUrl').addEventListener('change', checkServiceStatus);
+
+        // 密码框回车登录
+        document.getElementById('password').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                login();
+            }
+        });
+    </script>
+</body>
+</html>
