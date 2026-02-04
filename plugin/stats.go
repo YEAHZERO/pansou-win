@@ -204,9 +204,9 @@ func (m *GlobalPluginStatsManager) PrintStats() {
 	defer m.statsLock.RUnlock()
 	
 	fmt.Println("\n========== 插件搜索效能统计 ==========")
-	fmt.Printf("%-15s | %8s | %8s | %8s | %8s | %10s | %8s\n", 
-		"插件名称", "搜索次数", "成功次数", "总结果数", "平均结果", "平均响应(ms)", "自定义优先级")
-	fmt.Println("--------------------------------------------------------------------------------")
+	fmt.Printf("%-15s | %8s | %8s | %8s | %8s | %10s | %8s | %8s\n", 
+		"插件名称", "搜索次数", "成功次数", "总结果数", "平均结果", "平均响应(ms)", "成功率(%)", "自定义优先级")
+	fmt.Println("----------------------------------------------------------------------------------------")
 	
 	for _, stats := range m.stats {
 		successRate := float64(0)
@@ -219,13 +219,14 @@ func (m *GlobalPluginStatsManager) PrintStats() {
 			priorityStr = fmt.Sprintf("%d", stats.CustomPriority)
 		}
 		
-		fmt.Printf("%-15s | %8d | %8d | %8d | %8.1f | %10.1f | %8s\n",
+		fmt.Printf("%-15s | %8d | %8d | %8d | %8.1f | %10.1f | %8.1f | %8s\n",
 			stats.PluginName,
 			stats.TotalSearches,
 			stats.SuccessSearches,
 			stats.TotalResults,
 			stats.AvgResults,
 			stats.AvgResponseTime,
+			successRate,
 			priorityStr)
 	}
 	fmt.Println("================================================================================")

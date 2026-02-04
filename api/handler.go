@@ -1,9 +1,8 @@
 package api
 
 import (
-	// "fmt"
+	"fmt"
 	"net/http"
-	// "os"
 	
 	"github.com/gin-gonic/gin"
 	"pansou/config"

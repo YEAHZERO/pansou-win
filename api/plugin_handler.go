@@ -126,13 +126,8 @@ func ResetPluginPriorityHandler(c *gin.Context) {
 		return
 	}
 	
-	// 获取默认优先级（需要通过反射或类型断言）
-	defaultPriority := 3 // 默认值
-	if basePlugin, ok := pluginInstance.(*plugin.BaseAsyncPlugin); ok {
-		// 这里无法直接访问priority字段，因为它是私有的
-		// 但我们可以通过其他方式获取
-		defaultPriority = basePlugin.Priority()
-	}
+	// 获取默认优先级
+	defaultPriority := pluginInstance.Priority()
 	
 	c.JSON(http.StatusOK, gin.H{
 		"code":    200,
