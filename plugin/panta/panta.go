@@ -113,8 +113,8 @@ const (
 	// 帖子URL模板
 	threadURLTemplate = "https://www.91panta.cn/thread?topicId=%s"
 	
-	// 默认优先级
-	defaultPriority = 1
+	// 默认优先级（降低权重：1->3）
+	defaultPriority = 3
 	
 	// 默认超时时间（秒）
 	defaultTimeout = 6

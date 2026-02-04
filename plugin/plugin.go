@@ -3,7 +3,6 @@ package plugin
 import (
 	"fmt"
 	"net/http"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"

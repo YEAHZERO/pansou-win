@@ -992,9 +992,6 @@ func mergeResultsByType(results []model.SearchResult, keyword string, cloudTypes
 	// 用于去重的映射，键为URL
 	uniqueLinks := make(map[string]model.MergedLink)
 
-	// 将关键词转为小写，用于不区分大小写的匹配
-	lowerKeyword := strings.ToLower(keyword)
-
 	// 遍历所有搜索结果
 	for _, result := range results {
 		// 提取消息中的链接-标题对应关系
