@@ -1090,10 +1090,13 @@ func mergeResultsByType(results []model.SearchResult, keyword string, cloudTypes
 				}
 			}
 			
-			// 关键词过滤：现在我们有了准确的链接-标题对应关系，只需检查每个链接的具体标题
+			// 关键词过滤：使用智能匹配
 			if !skipKeywordFilter && keyword != "" {
-				// 只检查链接的具体标题，无论是TG来源还是插件来源
-				if !strings.Contains(strings.ToLower(title), lowerKeyword) {
+				// 创建关键词匹配器
+				matcher := util.NewKeywordMatcher(keyword)
+				
+				// 使用智能匹配检查标题
+				if !matcher.Match(title) {
 					continue
 				}
 			}

@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"pansou/config"
 	"pansou/model"
+	"pansou/util"
 )
 
 // ============================================================
@@ -235,6 +236,7 @@ func (pm *PluginManager) GetPlugins() []AsyncSearchPlugin {
 // ============================================================
 
 // FilterResultsByKeyword 根据关键词过滤搜索结果的全局辅助函数
+// 使用智能关键词匹配，支持分词和部分匹配
 func FilterResultsByKeyword(results []model.SearchResult, keyword string) []model.SearchResult {
 	if keyword == "" {
 		return results
@@ -243,28 +245,20 @@ func FilterResultsByKeyword(results []model.SearchResult, keyword string) []mode
 	// 预估过滤后会保留80%的结果
 	filteredResults := make([]model.SearchResult, 0, len(results)*8/10)
 
-	// 将关键词转为小写，用于不区分大小写的比较
-	lowerKeyword := strings.ToLower(keyword)
-
-	// 将关键词按空格分割，用于支持多关键词搜索
-	keywords := strings.Fields(lowerKeyword)
+	// 创建关键词匹配器
+	matcher := util.NewKeywordMatcher(keyword)
 
 	for _, result := range results {
-		// 将标题和内容转为小写
-		lowerTitle := strings.ToLower(result.Title)
-		lowerContent := strings.ToLower(result.Content)
-
-		// 检查每个关键词是否在标题或内容中
-		matched := true
-		for _, kw := range keywords {
-			// 对于所有关键词，检查是否在标题或内容中
-			if !strings.Contains(lowerTitle, kw) && !strings.Contains(lowerContent, kw) {
-				matched = false
-				break
-			}
+		// 检查标题是否匹配
+		titleMatched := matcher.Match(result.Title)
+		
+		// 检查内容是否匹配
+		contentMatched := false
+		if !titleMatched && result.Content != "" {
+			contentMatched = matcher.Match(result.Content)
 		}
 
-		if matched {
+		if titleMatched || contentMatched {
 			filteredResults = append(filteredResults, result)
 		}
 	}

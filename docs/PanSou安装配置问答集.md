@@ -584,7 +584,7 @@ curl http://localhost:8888/api/health
 
 ## 相关文档
 
-- [Windows源码安装指南.md](Windows源码安装指南.md) - 详细安装指南
+- [Windows安装部署指南.md](Windows安装部署指南.md) - 详细安装指南
 - [纯API使用指南.md](纯API使用指南.md) - API 使用说明
 - [api-client-examples/](../api-client-examples/) - 客户端示例
 - [README.md](../README.md) - 项目主文档

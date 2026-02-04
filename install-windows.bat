@@ -103,7 +103,7 @@ if %errorlevel% equ 0 (
     echo 或者手动启动:
     echo   pansou.exe
     echo.
-    echo 📖 更多信息请查看: docs\Windows源码安装指南.md
+    echo 📖 更多信息请查看: docs\Windows安装部署指南.md
 ) else (
     echo ❌ 编译失败
     echo.
@@ -134,7 +134,7 @@ echo.
 echo 5. 运行启动脚本:
 echo    start-pansou.bat
 echo.
-echo 📖 详细说明请查看: docs\Windows源码安装指南.md
+echo 📖 详细说明请查看: docs\Windows安装部署指南.md
 echo.
 goto end
 
@@ -145,7 +145,7 @@ goto end
 :end
 echo.
 echo 📚 相关文档:
-echo   - docs\Windows源码安装指南.md (详细安装指南)
+echo   - docs\Windows安装部署指南.md (详细安装指南)
 echo   - docs\纯API使用指南.md (API 使用说明)
 echo   - api-client-examples\ (客户端示例)
 echo.

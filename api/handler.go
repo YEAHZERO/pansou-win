@@ -244,16 +244,25 @@ func printSearchSummary(result model.SearchResponse, sourceType string) {
 		}
 	}
 	
-	// 统计MergedByType中的来源
-	for _, links := range result.MergedByType {
-		for _, link := range links {
-			if strings.HasPrefix(link.Source, "tg:") {
-				// TG来源已在Results中统计
-			} else if strings.HasPrefix(link.Source, "plugin:") {
-				pluginName := strings.TrimPrefix(link.Source, "plugin:")
-				// 只统计不在Results中的插件结果
-				if _, exists := pluginStats[pluginName]; !exists {
-					pluginStats[pluginName] = 0
+	// 统计MergedByType中的来源（用于merged_by_type返回格式）
+	if len(result.MergedByType) > 0 {
+		// 使用map去重，避免重复统计同一个链接
+		countedLinks := make(map[string]bool)
+		
+		for _, links := range result.MergedByType {
+			for _, link := range links {
+				// 使用 source+url 作为唯一标识
+				linkKey := link.Source + "|" + link.URL
+				if countedLinks[linkKey] {
+					continue
+				}
+				countedLinks[linkKey] = true
+				
+				if strings.HasPrefix(link.Source, "tg:") {
+					tgCount++
+				} else if strings.HasPrefix(link.Source, "plugin:") {
+					pluginName := strings.TrimPrefix(link.Source, "plugin:")
+					pluginStats[pluginName]++
 				}
 			}
 		}
