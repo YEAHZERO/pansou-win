@@ -216,9 +216,74 @@ func SearchHandler(c *gin.Context) {
 	if req.Filter != nil {
 		result = applyResultFilter(result, req.Filter, req.ResultType)
 	}
+	
+	// 打印搜索结果摘要
+	printSearchSummary(result, req.SourceType)
 
 	// 包装SearchResponse到标准响应格式中
 	response := model.NewSuccessResponse(result)
 	jsonData, _ := jsonutil.Marshal(response)
 	c.Data(http.StatusOK, "application/json", jsonData)
 } 
+
+// printSearchSummary 打印搜索结果摘要
+func printSearchSummary(result model.SearchResponse, sourceType string) {
+	// 统计各来源的结果数
+	pluginStats := make(map[string]int)
+	tgCount := 0
+	
+	// 统计Results中的来源
+	for _, r := range result.Results {
+		if r.Channel != "" {
+			tgCount++
+		} else if r.UniqueID != "" && strings.Contains(r.UniqueID, "-") {
+			parts := strings.SplitN(r.UniqueID, "-", 2)
+			if len(parts) >= 1 {
+				pluginName := parts[0]
+				pluginStats[pluginName]++
+			}
+		}
+	}
+	
+	// 统计MergedByType中的来源
+	for _, links := range result.MergedByType {
+		for _, link := range links {
+			if strings.HasPrefix(link.Source, "tg:") {
+				// TG来源已在Results中统计
+			} else if strings.HasPrefix(link.Source, "plugin:") {
+				pluginName := strings.TrimPrefix(link.Source, "plugin:")
+				// 只统计不在Results中的插件结果
+				if _, exists := pluginStats[pluginName]; !exists {
+					pluginStats[pluginName] = 0
+				}
+			}
+		}
+	}
+	
+	// 打印摘要
+	if sourceType == "plugin" || (sourceType == "all" && len(pluginStats) > 0) {
+		fmt.Printf("✅ [搜索完成] 总结果: %d", result.Total)
+		
+		if len(pluginStats) > 0 {
+			fmt.Printf(" | 插件结果: ")
+			first := true
+			for pluginName, count := range pluginStats {
+				if !first {
+					fmt.Printf(", ")
+				}
+				fmt.Printf("%s(%d)", pluginName, count)
+				first = false
+			}
+		}
+		
+		if tgCount > 0 && sourceType == "all" {
+			fmt.Printf(" | TG: %d", tgCount)
+		}
+		
+		fmt.Println()
+	} else if sourceType == "tg" {
+		fmt.Printf("✅ [搜索完成] 总结果: %d | TG: %d\n", result.Total, tgCount)
+	} else {
+		fmt.Printf("✅ [搜索完成] 总结果: %d\n", result.Total)
+	}
+}

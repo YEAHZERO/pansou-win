@@ -129,6 +129,26 @@ go build -o pansou.exe .
 #### 步骤 4: 配置和启动
 使用提供的启动脚本或手动配置环境变量。
 
+### Q: 如何重新编译获取最新功能？
+
+**A**: 如果你看到旧版本的日志格式或缺少新功能：
+
+```cmd
+# 方法1：使用脚本（推荐）
+rebuild.bat
+
+# 方法2：手动编译
+go build -o pansou.exe
+
+# 方法3：清理后编译
+del pansou.exe
+go build -o pansou.exe
+```
+
+**验证新功能**：
+- ✅ 简洁的URL日志：`[插件名] 域名`
+- ✅ 搜索完成摘要：显示各插件结果数量
+
 ### Q: 编译过程中遇到问题怎么办？
 
 **A**: 常见问题解决：
@@ -187,6 +207,71 @@ labi,zhizhen,shandian,duoduo,muou,wanou,hunhepan,jikepan,pansearch,panta,qupanso
 
 ---
 
+## 快速修复指南
+
+### Q: 无法在任意目录安装怎么办？
+
+**A**: 如果看到错误：
+```
+❌ 未找到 PanSou 可执行文件！
+路径: C:\Users\Administrator\pansou\pansou.exe
+```
+
+**原因**: 旧版本的 `start.bat` 使用了硬编码路径。
+
+**解决方案**（3种方法）：
+
+#### 方法1：使用通用部署脚本（最简单）⭐
+```cmd
+cd "C:\Program Files\pansou-win"
+deploy-universal.bat
+```
+按提示选择是否启动服务即可。
+
+#### 方法2：使用 start-pansou.bat（推荐）
+```cmd
+cd "C:\Program Files\pansou-win"
+start-pansou.bat
+```
+这个脚本原本就使用相对路径，无需修改。
+
+#### 方法3：更新 start.bat
+如果你想继续使用 `start.bat`，确保它已更新为使用相对路径。
+
+检查文件开头是否包含：
+```bat
+REM 获取当前脚本所在目录
+set SCRIPT_DIR=%~dp0
+set SCRIPT_DIR=%SCRIPT_DIR:~0,-1%
+```
+
+**验证修复**：
+运行后应该看到：
+```
+配置信息:
+可执行文件: C:\Program Files\pansou-win\pansou.exe
+服务端口: 8889
+缓存目录: C:\Program Files\pansou-win\cache
+...
+🚀 启动 PanSou 服务器...
+```
+
+路径应该是你实际的安装目录，而不是 `C:\Users\Administrator\pansou`。
+
+### Q: 在 Program Files 下需要管理员权限吗？
+
+**A**: 是的，右键点击"命令提示符" → "以管理员身份运行"
+
+### Q: 路径包含空格怎么办？
+
+**A**: 脚本已处理空格，可以正常使用
+
+### Q: 如何检查服务是否启动？
+
+**A**: 访问 http://localhost:8888/api/health
+
+---
+
 ## 端口占用问题
 
 ### Q: 启动时显示端口被占用错误怎么办？
@@ -225,6 +310,10 @@ listen tcp :8888: bind: Only one usage of each socket address (protocol/network 
    ```cmd
    set PORT=8889
    ```
+
+### Q: 端口被占用怎么办？
+
+**A**: 编辑启动脚本，修改 `set PORT=8888` 为其他端口
 
 ### Q: 如何创建端口检查工具？
 

@@ -1,6 +1,6 @@
 # PanSou Windows 安装部署指南
 
-> **完整的 Windows 安装和部署指南，适用于新用户快速开始**
+> **完整的 Windows 安装和部署指南，支持任意目录安装**
 
 ---
 
@@ -13,9 +13,30 @@
 
 ---
 
-## 🚀 快速开始（推荐）
+## 🚀 快速开始
 
-### 源码编译
+### 方法1：使用通用部署脚本（推荐）⭐
+
+**支持任意目录安装**，包括：
+- `C:\Program Files\pansou`
+- `D:\Apps\pansou`
+- `C:\Users\YourName\pansou`
+- 任何包含空格的路径
+
+```cmd
+# 1. 解压到任意目录
+# 例如：C:\Program Files\pansou
+
+# 2. 打开命令提示符（以管理员身份，如果在Program Files下）
+cd "C:\Program Files\pansou"
+
+# 3. 运行通用部署脚本
+deploy-universal.bat
+
+# 4. 按提示选择是否立即启动
+```
+
+### 方法2：源码编译
 
 ```cmd
 # 1. 下载项目
@@ -334,6 +355,41 @@ go build -o pansou.exe
 
 # 4. 启动服务
 start.bat
+```
+
+---
+
+## 🔨 重新编译（获取最新功能）
+
+如果你看到旧版本的日志格式或缺少新功能，需要重新编译：
+
+### 快速编译
+
+```cmd
+# 方法1：使用提供的脚本
+rebuild.bat
+
+# 方法2：手动编译
+go build -o pansou.exe
+
+# 方法3：清理后重新编译
+del pansou.exe
+go build -o pansou.exe
+```
+
+### 验证新功能
+
+**1. 简洁的URL日志**：
+```
+✅ 新版本：[labi] xiaocge.fun
+❌ 旧版本：[labi] 搜索 URL: http://xiaocge.fun/index.php/vod/search/wd/%E5%BC%80...
+```
+
+**2. 搜索完成摘要**：
+```
+📊 [labi] 搜索完成: 5个结果 | 耗时: 234ms
+📊 [zhizhen] 搜索完成: 3个结果 | 耗时: 189ms
+✅ [搜索完成] 总结果: 10 | 插件结果: labi(5), zhizhen(3)
 ```
 
 ---

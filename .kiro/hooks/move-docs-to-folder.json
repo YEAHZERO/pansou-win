@@ -1,13 +1,13 @@
 {
-  "name": "自动移动文档到docs目录",
+  "name": "移动文档到docs目录",
   "version": "1.0.0",
-  "description": "当在主目录下创建 .md 或 .txt 文档时，自动移动到 docs 目录并更新索引",
+  "description": "当在主目录创建markdown文档时，自动移动到docs目录",
   "when": {
     "type": "fileCreated",
-    "patterns": ["*.md", "*.txt"]
+    "patterns": ["*.md"]
   },
   "then": {
     "type": "askAgent",
-    "prompt": "检测到在主目录创建了新文档。请执行以下操作：\n\n1. 识别新创建的文档文件（排除 README.md）\n2. 检查文件是否是文档类型（.md 或 .txt）\n3. 将文件移动到 docs 目录：\n   - 使用文件系统工具移动文件\n   - 保持文件名不变\n4. 删除主目录下的原文件\n5. 触发文档自动归类流程：\n   - 分析文档内容\n   - 判断所属分类\n   - 更新 docs/README.md\n6. 通知用户文件已移动\n\n注意：\n- 不要移动 README.md（项目主文档）\n- 不要移动 LICENSE、CHANGELOG 等特殊文件\n- 只移动明确的文档文件\n\n请自动完成移动和归类，无需询问确认。"
+    "prompt": "检测到主目录下创建了新的markdown文档。请将主目录下的所有markdown文档（除了README.md）移动到docs目录中。不要生成任何总结文档。"
   }
 }

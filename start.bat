@@ -7,8 +7,13 @@ echo    PanSou 网盘搜索服务
 echo ================================
 echo.
 
-REM 设置 PanSou 可执行文件路径
-set PANSOU_PATH=C:\Users\Administrator\pansou\pansou.exe
+REM 获取当前脚本所在目录
+set SCRIPT_DIR=%~dp0
+REM 移除末尾的反斜杠
+set SCRIPT_DIR=%SCRIPT_DIR:~0,-1%
+
+REM 设置 PanSou 可执行文件路径（使用相对路径）
+set PANSOU_PATH=%SCRIPT_DIR%\pansou.exe
 
 REM 检查可执行文件是否存在
 if not exist "%PANSOU_PATH%" (
@@ -26,7 +31,7 @@ if not exist "%PANSOU_PATH%" (
 REM 基础配置
 set PORT=8889
 set CACHE_ENABLED=true
-set CACHE_PATH=C:\Users\Administrator\pansou\cache
+set CACHE_PATH=%SCRIPT_DIR%\cache
 set TZ=Asia/Shanghai
 
 REM 检查端口是否被占用
@@ -98,8 +103,8 @@ if not exist "%CACHE_PATH%" (
     echo ✅ 已创建缓存目录: %CACHE_PATH%
 )
 
-REM 设置工作目录
-cd /d "C:\Users\Administrator\pansou"
+REM 设置工作目录为脚本所在目录
+cd /d "%SCRIPT_DIR%"
 
 echo 🚀 启动 PanSou 服务器...
 echo.
