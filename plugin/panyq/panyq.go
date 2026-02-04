@@ -994,6 +994,11 @@ func (p *PanyqPlugin) getSearchResults(sign string, pageNum int, client *http.Cl
 	// 构建URL
 	searchURL := fmt.Sprintf("%s/api/search?sign=%s&page=%d", BaseURL, sign, pageNum)
 	
+	// 记录搜索URL到日志
+	if pageNum == 1 {
+		fmt.Printf("[%s] %s\n", p.Name(), "www.panyq.com")
+	}
+	
 	// 创建请求
 	req, err := http.NewRequest("GET", searchURL, nil)
 	if err != nil {

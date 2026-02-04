@@ -68,6 +68,9 @@ func (p *HunhepanAsyncPlugin) SearchWithResult(keyword string, ext map[string]in
 
 // doSearch 实际的搜索实现
 func (p *HunhepanAsyncPlugin) doSearch(client *http.Client, keyword string, ext map[string]interface{}) ([]model.SearchResult, error) {
+	// 记录搜索URL到日志
+	fmt.Printf("[%s] %s\n", p.Name(), "www.hunhepan.com")
+	
 	debugLog("开始搜索，关键词: %s", keyword)
 	
 	// 创建结果通道和错误通道

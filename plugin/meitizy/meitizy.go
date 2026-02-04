@@ -130,6 +130,9 @@ func (p *MeitizyPlugin) SearchWithResult(keyword string, ext map[string]interfac
 
 // searchImpl 搜索实现
 func (p *MeitizyPlugin) searchImpl(client *http.Client, keyword string, ext map[string]interface{}) ([]model.SearchResult, error) {
+	// 记录搜索URL到日志
+	fmt.Printf("[%s] %s\n", p.Name(), "www.meitizy.com")
+	
 	// 构建请求体
 	reqBody := searchRequest{
 		Title: keyword,

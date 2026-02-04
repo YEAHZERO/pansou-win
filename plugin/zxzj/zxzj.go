@@ -59,6 +59,9 @@ func (p *ZXZJPlugin) SearchWithResult(keyword string, ext map[string]interface{}
 func (p *ZXZJPlugin) searchImpl(client *http.Client, keyword string, ext map[string]interface{}) ([]model.SearchResult, error) {
 	searchURL := fmt.Sprintf("%s%s?wd=%s&submit=", baseURL, searchPath, url.QueryEscape(keyword))
 	
+	// 记录搜索URL到日志
+	fmt.Printf("[%s] %s\n", p.Name(), "www.zxzjhd.com")
+	
 	items, err := p.fetchSearchResults(searchURL)
 	if err != nil {
 		return nil, err

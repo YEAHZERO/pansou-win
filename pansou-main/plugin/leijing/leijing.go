@@ -123,7 +123,7 @@ func (p *LeijingPlugin) searchImpl(client *http.Client, keyword string, ext map[
 	
 	if p.debugMode {
 		log.Printf("[Leijing] 开始搜索: %s", keyword)
-		log.Printf("[Leijing] 搜索URL: %s", searchURL)
+		log.Printf("[Leijing] %s", "www.leijingpan.com")
 	}
 	
 	// 发送搜索请求

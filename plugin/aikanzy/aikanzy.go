@@ -137,6 +137,9 @@ func (p *AikanzyAsyncPlugin) doSearch(client *http.Client, keyword string, ext m
 	// 构建搜索URL
 	searchURL := fmt.Sprintf(searchURLTemplate, encodedKeyword)
 	
+	// 记录搜索URL到日志
+	fmt.Printf("[%s] %s\n", p.Name(), "www.aikanzy.com")
+	
 	// 创建一个带有超时的上下文
 	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout*time.Second)
 	defer cancel()

@@ -101,7 +101,7 @@ func (p *XdpanPlugin) fetchSearchResults(client *http.Client, keyword string) ([
 	p.setRequestHeaders(req)
 
 	if DebugLog {
-		fmt.Printf("[xdpan] 搜索URL: %s\n", searchURL)
+		fmt.Printf("[xdpan] %s\n", "www.xdpan.com")
 	}
 
 	resp, err := p.doRequestWithRetry(req, client)

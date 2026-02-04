@@ -221,6 +221,10 @@ func (p *QupanshePlugin) postSearchRequest(client *http.Client, keyword, formhas
 
 	// 构建POST请求
 	searchURL := fmt.Sprintf("%s/search.php?mod=forum", BaseURL)
+	
+	// 记录搜索URL到日志
+	fmt.Printf("[%s] %s\n", p.Name(), "www.qupanshe.com")
+	
 	data := url.Values{}
 	data.Set("formhash", formhash)
 	data.Set("srchtxt", keyword)

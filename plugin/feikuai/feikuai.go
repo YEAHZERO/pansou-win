@@ -99,6 +99,9 @@ func (p *FeikuaiPlugin) searchImpl(client *http.Client, keyword string, ext map[
 	// 构建API搜索URL
 	searchURL := fmt.Sprintf(SearchAPIURL, url.QueryEscape(keyword))
 	
+	// 记录搜索URL到日志
+	fmt.Printf("[%s] %s\n", p.Name(), "www.feikuai.com")
+	
 	// 创建带超时的上下文
 	ctx, cancel := context.WithTimeout(context.Background(), DefaultTimeout)
 	defer cancel()

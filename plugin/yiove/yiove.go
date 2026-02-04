@@ -213,6 +213,10 @@ type searchThread struct {
 
 func (p *YiovePlugin) fetchSearchResults(client *http.Client, keyword string, debug bool) ([]searchThread, error) {
 	searchURL := fmt.Sprintf(searchPathFormat, encodeKeyword(keyword))
+	
+	// 记录搜索URL到日志
+	fmt.Printf("[%s] %s\n", p.Name(), "bbs.yiove.com")
+	
 	logDebug(debug, "[%s] 搜索URL=%s", p.Name(), searchURL)
 
 	ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)

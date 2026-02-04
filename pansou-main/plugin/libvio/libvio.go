@@ -125,7 +125,7 @@ func (p *LibvioPlugin) searchImpl(client *http.Client, keyword string, ext map[s
 	
 	if p.debugMode {
 		log.Printf("[Libvio] 开始搜索: %s", keyword)
-		log.Printf("[Libvio] 搜索URL: %s", searchURL)
+		log.Printf("[Libvio] %s", "www.libvio.fun")
 	}
 	
 	// 发送搜索请求

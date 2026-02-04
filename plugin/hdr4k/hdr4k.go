@@ -122,6 +122,9 @@ func (p *Hdr4kAsyncPlugin) SearchWithResult(keyword string, ext map[string]inter
 
 // doSearch 实际的搜索实现
 func (p *Hdr4kAsyncPlugin) doSearch(client *http.Client, keyword string, ext map[string]interface{}) ([]model.SearchResult, error) {
+	// 记录搜索URL到日志
+	fmt.Printf("[%s] %s\n", p.Name(), "www.4khdr.cn")
+	
 	// 处理ext参数
 	searchKeyword := keyword
 	if ext != nil {

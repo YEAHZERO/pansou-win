@@ -93,6 +93,9 @@ func (p *MiaosouPlugin) searchImpl(client *http.Client, keyword string, ext map[
 	// 构建请求URL
 	searchURL := fmt.Sprintf("%s?name=%s&pageNo=1", BaseURL, url.QueryEscape(searchKeyword))
 	
+	// 记录搜索URL到日志
+	fmt.Printf("[%s] %s\n", p.Name(), "www.miaoso.com")
+	
 	// 创建带超时的上下文
 	ctx, cancel := context.WithTimeout(context.Background(), TimeoutSeconds*time.Second)
 	defer cancel()

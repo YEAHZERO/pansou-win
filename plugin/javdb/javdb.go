@@ -155,7 +155,7 @@ func (p *JavdbPlugin) executeSearchWithRateLimit(client *http.Client, keyword st
 	searchURL := fmt.Sprintf("%s%s", BaseURL, fmt.Sprintf(SearchPath, url.QueryEscape(keyword)))
 	
 	if p.debugMode {
-		log.Printf("[JAVDB] 搜索URL: %s", searchURL)
+		log.Printf("[JAVDB] %s", "javdb.com")
 		// 显示重试配置信息
 		if MaxRetryOnRateLimit > 0 {
 			log.Printf("[JAVDB] 429重试配置: 最大%d次，延迟%d-%d秒", MaxRetryOnRateLimit, MinRetryDelay, MaxRetryDelay)

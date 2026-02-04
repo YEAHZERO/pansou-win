@@ -186,6 +186,9 @@ func (p *HubanAsyncPlugin) searchImpl(client *http.Client, keyword string, ext m
 
 	// 1. 构建搜索URL
 	searchURL := fmt.Sprintf("http://103.45.162.207:20720/index.php/vod/search/wd/%s.html", url.QueryEscape(keyword))
+	
+	// 记录搜索URL到日志
+	fmt.Printf("[%s] %s\n", p.Name(), "www.huban.fun")
 
 	// 2. 创建带超时的上下文
 	ctx, cancel := context.WithTimeout(context.Background(), DefaultTimeout)

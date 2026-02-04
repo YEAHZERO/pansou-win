@@ -117,7 +117,12 @@ func (p *AlupanPlugin) searchImpl(client *http.Client, keyword string, ext map[s
 		client = p.client
 	}
 
+	// 构建搜索URL
 	searchURL := fmt.Sprintf("https://www.aliupan.com/?s=%s", url.QueryEscape(keyword))
+	
+	// 记录搜索URL到日志
+	fmt.Printf("[%s] %s\n", p.Name(), "www.aliupan.com")
+	
 	ctx, cancel := context.WithTimeout(context.Background(), searchTimeout)
 	defer cancel()
 

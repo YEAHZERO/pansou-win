@@ -572,6 +572,9 @@ func (p *QQPDPlugin) Search(keyword string, ext map[string]interface{}) ([]model
 
 // SearchWithResult 执行搜索并返回包含IsFinal标记的结果
 func (p *QQPDPlugin) SearchWithResult(keyword string, ext map[string]interface{}) (model.PluginSearchResult, error) {
+	// 记录搜索URL到日志
+	fmt.Printf("[%s] %s\n", p.Name(), "www.qqpd.cc")
+	
 	if DebugLog {
 		fmt.Printf("[QQPD] ========== 开始搜索: %s ==========\n", keyword)
 	}

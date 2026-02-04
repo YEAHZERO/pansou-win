@@ -51,6 +51,9 @@ func (p *JikepanAsyncV2Plugin) SearchWithResult(keyword string, ext map[string]i
 
 // doSearch 实际的搜索实现
 func (p *JikepanAsyncV2Plugin) doSearch(client *http.Client, keyword string, ext map[string]interface{}) ([]model.SearchResult, error) {
+	// 记录搜索URL到日志
+	fmt.Printf("[%s] %s\n", p.Name(), "jikepan.xyz")
+	
 	// 构建请求
 	reqBody := map[string]interface{}{
 		"name":   keyword,

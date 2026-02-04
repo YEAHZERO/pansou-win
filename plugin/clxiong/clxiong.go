@@ -58,6 +58,9 @@ func (p *ClxiongPlugin) Search(keyword string, ext map[string]interface{}) ([]mo
 
 // SearchWithResult 搜索并返回详细结果
 func (p *ClxiongPlugin) SearchWithResult(keyword string, ext map[string]interface{}) (*model.PluginSearchResult, error) {
+	// 记录搜索URL到日志
+	fmt.Printf("[%s] %s\n", p.Name(), "www.cilixiong.org")
+	
 	if p.debugMode {
 		log.Printf("[CLXIONG] 开始搜索: %s", keyword)
 	}

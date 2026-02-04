@@ -111,6 +111,9 @@ func (p *DdysPlugin) searchImpl(client *http.Client, keyword string, ext map[str
 func (p *DdysPlugin) executeSearch(client *http.Client, keyword string) ([]model.SearchResult, error) {
 	// 构建搜索URL
 	searchURL := fmt.Sprintf("%s%s", BaseURL, fmt.Sprintf(SearchPath, url.QueryEscape(keyword)))
+	
+	// 记录搜索URL到日志
+	fmt.Printf("[%s] %s\n", p.Name(), "www.ddys.pro")
 
 	// 创建带超时的上下文
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

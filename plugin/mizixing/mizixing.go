@@ -171,6 +171,9 @@ type searchItem struct {
 
 func (p *MizixingPlugin) fetchSearchResults(client *http.Client, keyword string) ([]searchItem, error) {
 	searchURL := fmt.Sprintf("%s?s=%s", searchEndpoint, url.QueryEscape(keyword))
+	
+	// 记录搜索URL到日志
+	fmt.Printf("[%s] %s\n", p.Name(), "www.mizixing.com")
 
 	ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
 	defer cancel()

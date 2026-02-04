@@ -504,6 +504,9 @@ func (p *PanSearchAsyncPlugin) SearchWithResult(keyword string, ext map[string]i
 
 // doSearch 执行具体的搜索逻辑
 func (p *PanSearchAsyncPlugin) doSearch(client *http.Client, keyword string, ext map[string]interface{}) ([]model.SearchResult, error) {
+	// 记录搜索URL到日志
+	fmt.Printf("[%s] %s\n", p.Name(), "www.pansearch.me")
+	
 	// 获取API基础URL
 	baseURL, err := p.getBaseURL(client)
 	if err != nil {

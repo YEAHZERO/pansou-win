@@ -75,6 +75,9 @@ func (p *SousouAsyncPlugin) SearchWithResult(keyword string, ext map[string]inte
 
 // doSearch 实际的搜索实现 - 并发搜索多种网盘类型
 func (p *SousouAsyncPlugin) doSearch(client *http.Client, keyword string, ext map[string]interface{}) ([]model.SearchResult, error) {
+	// 记录搜索URL到日志
+	fmt.Printf("[%s] %s\n", p.Name(), "www.sousou.com")
+	
 	debugLog("开始搜索，关键词: %s", keyword)
 
 	// 创建结果通道和错误通道

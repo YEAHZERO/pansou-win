@@ -1368,11 +1368,31 @@ func (s *SearchService) searchPlugins(keyword string, plugins []string, forceRef
 		concurrency = config.AppConfig.DefaultConcurrency
 	}
 	
-	// 使用工作池执行并行搜索
-	tasks := make([]pool.Task, 0, len(availablePlugins))
+	// 按优先级分组插件
+	highPriorityPlugins := make([]plugin.AsyncSearchPlugin, 0)
+	normalPriorityPlugins := make([]plugin.AsyncSearchPlugin, 0)
+	
 	for _, p := range availablePlugins {
+		if p.Priority() <= 2 {
+			// 优先级1-2的插件（第一、二梯队）
+			highPriorityPlugins = append(highPriorityPlugins, p)
+		} else {
+			// 优先级3及以上的插件
+			normalPriorityPlugins = append(normalPriorityPlugins, p)
+		}
+	}
+	
+	// 创建结果通道
+	resultsChan := make(chan []model.SearchResult, len(availablePlugins))
+	var wg sync.WaitGroup
+	
+	// 先执行高优先级插件
+	for _, p := range highPriorityPlugins {
+		wg.Add(1)
 		plugin := p // 创建副本，避免闭包问题
-		tasks = append(tasks, func() interface{} {
+		go func() {
+			defer wg.Done()
+			
 			// 设置主缓存键和当前关键词
 			plugin.SetMainCacheKey(cacheKey)
 			plugin.SetCurrentKeyword(keyword)
@@ -1383,15 +1403,61 @@ func (s *SearchService) searchPlugins(keyword string, plugins []string, forceRef
 				return plugin.Search(kw, extParams)
 			}, cacheKey, ext)
 			
-			if err != nil {
-				return nil
+			if err == nil && len(results) > 0 {
+				resultsChan <- results
 			}
-			return results
-		})
+		}()
 	}
 	
-	// 执行搜索任务并获取结果
-	results := pool.ExecuteBatchWithTimeout(tasks, concurrency, config.AppConfig.PluginTimeout)
+	// 等待高优先级插件完成或超时（给高优先级插件更多时间）
+	highPriorityDone := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(highPriorityDone)
+	}()
+	
+	// 等待高优先级插件完成，最多等待响应超时时间
+	select {
+	case <-highPriorityDone:
+		// 高优先级插件已完成
+	case <-time.After(config.AppConfig.AsyncResponseTimeoutDur):
+		// 超时，继续执行
+	}
+	
+	// 然后执行普通优先级插件
+	for _, p := range normalPriorityPlugins {
+		wg.Add(1)
+		plugin := p // 创建副本，避免闭包问题
+		go func() {
+			defer wg.Done()
+			
+			// 设置主缓存键和当前关键词
+			plugin.SetMainCacheKey(cacheKey)
+			plugin.SetCurrentKeyword(keyword)
+			
+			// 调用异步插件的AsyncSearch方法
+			results, err := plugin.AsyncSearch(keyword, func(client *http.Client, kw string, extParams map[string]interface{}) ([]model.SearchResult, error) {
+				// 使用插件的Search方法作为搜索函数
+				return plugin.Search(kw, extParams)
+			}, cacheKey, ext)
+			
+			if err == nil && len(results) > 0 {
+				resultsChan <- results
+			}
+		}()
+	}
+	
+	// 等待所有插件完成
+	go func() {
+		wg.Wait()
+		close(resultsChan)
+	}()
+	
+	// 收集所有结果
+	var results []interface{}
+	for pluginResults := range resultsChan {
+		results = append(results, pluginResults)
+	}
 	
 	// 合并所有插件的结果，过滤掉无链接的结果
 	var allResults []model.SearchResult

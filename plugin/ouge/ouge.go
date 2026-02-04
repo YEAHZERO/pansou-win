@@ -119,6 +119,9 @@ func (p *OugeAsyncPlugin) searchImpl(client *http.Client, keyword string, ext ma
 	// 构建API搜索URL - 使用ouge专用域名
 	searchURL := fmt.Sprintf("https://woog.nxog.eu.org/api.php/provide/vod?ac=detail&wd=%s", url.QueryEscape(keyword))
 	
+	// 记录搜索URL到日志
+	fmt.Printf("[%s] %s\n", p.Name(), "www.ouge.fun")
+	
 	// 创建HTTP请求
 	ctx, cancel := context.WithTimeout(context.Background(), DefaultTimeout)
 	defer cancel()

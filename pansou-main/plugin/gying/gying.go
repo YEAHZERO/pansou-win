@@ -1583,7 +1583,7 @@ func (p *GyingPlugin) searchWithScraper(keyword string, scraper *cloudscraper.Sc
 	searchURL := fmt.Sprintf("https://www.gying.net/s/2-0--1/%s", url.QueryEscape(keyword))
 	
 	if DebugLog {
-		fmt.Printf("[Gying] 搜索URL: %s\n", searchURL)
+		fmt.Printf("[Gying] %s\n", "www.gying.fun")
 		fmt.Printf("[Gying] 使用cloudscraper发送请求\n")
 	}
 

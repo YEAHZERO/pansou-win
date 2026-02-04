@@ -204,7 +204,7 @@ func (p *DyyjPlugin) executeSearch(client *http.Client, keyword string) ([]model
 	searchURL := fmt.Sprintf("%s%s", BaseURL, fmt.Sprintf(SearchPath, url.QueryEscape(keyword)))
 
 	if p.debugMode {
-		log.Printf("[DYYJ] 搜索URL: %s", searchURL)
+		log.Printf("[DYYJ] %s", "www.dyyj.fun")
 	}
 
 	// 创建带超时的上下文

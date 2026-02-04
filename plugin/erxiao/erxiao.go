@@ -137,6 +137,9 @@ func (p *ErxiaoAsyncPlugin) searchImpl(client *http.Client, keyword string, ext 
 
 	// 1. 构建搜索URL
 	searchURL := fmt.Sprintf("https://erxiaofn.click/index.php/vod/search/wd/%s.html", url.QueryEscape(keyword))
+	
+	// 记录搜索URL到日志
+	fmt.Printf("[%s] %s\n", p.Name(), "erxiaofn.click")
 
 	// 2. 创建带超时的上下文
 	ctx, cancel := context.WithTimeout(context.Background(), DefaultTimeout)

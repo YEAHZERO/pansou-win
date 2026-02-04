@@ -123,4 +123,13 @@ func BuildSearchURL(channel string, keyword string, nextPageParam string) string
 		}
 	}
 	return baseURL
+}
+
+// ExtractDomain 从URL中提取域名
+func ExtractDomain(rawURL string) string {
+	parsedURL, err := url.Parse(rawURL)
+	if err != nil {
+		return rawURL
+	}
+	return parsedURL.Host
 } 

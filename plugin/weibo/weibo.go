@@ -488,6 +488,9 @@ func (p *WeiboPlugin) Search(keyword string, ext map[string]interface{}) ([]mode
 }
 
 func (p *WeiboPlugin) SearchWithResult(keyword string, ext map[string]interface{}) (model.PluginSearchResult, error) {
+	// 记录搜索URL到日志
+	fmt.Printf("[%s] %s\n", p.Name(), "weibo.com")
+	
 	if DebugLog {
 		fmt.Printf("[Weibo] ========== 开始搜索: %s ==========\n", keyword)
 	}

@@ -143,6 +143,9 @@ func (p *Xb6vPlugin) doRequest(client *http.Client, method, url, postData string
 
 // searchImpl 实际的搜索实现
 func (p *Xb6vPlugin) searchImpl(client *http.Client, keyword string, ext map[string]interface{}) ([]model.SearchResult, error) {
+	// 记录搜索URL到日志
+	fmt.Printf("[%s] %s\n", p.Name(), "www.xb6v.com")
+	
 	// 先进行URL解码，处理%20等编码
 	decodedKeyword, err := url.QueryUnescape(keyword)
 	if err != nil {

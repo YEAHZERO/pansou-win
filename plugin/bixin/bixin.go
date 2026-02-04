@@ -71,6 +71,9 @@ func (p *BixinAsyncPlugin) SearchWithResult(keyword string, ext map[string]inter
 
 // doSearch 实际的搜索实现
 func (p *BixinAsyncPlugin) doSearch(client *http.Client, keyword string, ext map[string]interface{}) ([]model.SearchResult, error) {
+	// 记录搜索URL到日志
+	fmt.Printf("[%s] %s\n", p.Name(), "www.bixbiy.com")
+	
 	// 初始化随机数种子
 	rand.Seed(time.Now().UnixNano())
 	

@@ -76,6 +76,9 @@ func (p *YuhuagePlugin) searchImpl(client *http.Client, keyword string, ext map[
 	encodedQuery := url.QueryEscape(keyword)
 	searchURL := fmt.Sprintf("%s%s%s-%d-time.html", BaseURL, SearchPath, encodedQuery, 1)
 	
+	// 记录搜索URL到日志
+	fmt.Printf("[%s] %s\n", p.Name(), "www.yuhuage.cc")
+	
 	// 创建带超时的上下文
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

@@ -137,7 +137,7 @@ func (p *XiaozhangPlugin) searchImpl(client *http.Client, keyword string, ext ma
 	
 	if p.debugMode {
 		log.Printf("[Xiaozhang] 开始搜索: %s", keyword)
-		log.Printf("[Xiaozhang] 搜索URL: %s", searchURL)
+		log.Printf("[Xiaozhang] %s", "www.xiaozhangpan.com")
 	}
 	
 	// 发送搜索请求

@@ -119,6 +119,9 @@ func (p *XiaojiAsyncPlugin) searchImpl(client *http.Client, keyword string, ext 
 	encodedKeyword := url.QueryEscape(keyword)
 	searchURL := fmt.Sprintf("%s/?s=%s", baseURL, encodedKeyword)
 	
+	// 记录搜索URL到日志
+	fmt.Printf("[%s] %s\n", pluginName, "www.xiaojitv.com")
+	
 	// 2. 创建带超时的上下文
 	ctx, cancel := context.WithTimeout(context.Background(), DefaultTimeout)
 	defer cancel()

@@ -119,6 +119,9 @@ func (p *XinjucPlugin) searchImpl(client *http.Client, keyword string, ext map[s
 	// 1. 构建搜索URL
 	searchURL := fmt.Sprintf("%s/?s=%s", SiteURL, url.QueryEscape(keyword))
 	
+	// 记录搜索URL到日志
+	fmt.Printf("[%s] %s\n", p.Name(), "www.xinjuc.com")
+	
 	// 2. 创建带超时的上下文
 	ctx, cancel := context.WithTimeout(context.Background(), DefaultTimeout)
 	defer cancel()

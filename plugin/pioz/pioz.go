@@ -92,7 +92,7 @@ func createOptimizedHTTPClient() *http.Client {
 // NewPiozPlugin 创建新的Pioz异步插件
 func NewPiozPlugin() *PiozAsyncPlugin {
 	return &PiozAsyncPlugin{
-		BaseAsyncPlugin: plugin.NewBaseAsyncPlugin("pioz", 3),
+		BaseAsyncPlugin: plugin.NewBaseAsyncPlugin("pioz", 1),
 		timeout:         DefaultTimeout,
 		maxResults:      MaxResults,
 		retries:         MaxRetries,
@@ -131,6 +131,9 @@ func (p *PiozAsyncPlugin) doSearch(client *http.Client, keyword string, ext map[
 
 	// 1. 构建搜索URL - 使用GET参数
 	searchURL := fmt.Sprintf("%s?q=%s", SearchURL, url.QueryEscape(keyword))
+	
+	// 记录搜索URL到日志
+	fmt.Printf("[%s] %s\n", p.Name(), "www.pioz.cn")
 
 	// 2. 创建带超时的上下文
 	ctx, cancel := context.WithTimeout(context.Background(), p.timeout)

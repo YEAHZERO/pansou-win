@@ -119,6 +119,9 @@ func (p *SusuAsyncPlugin) SearchWithResult(keyword string, ext map[string]interf
 
 // doSearch 实际的搜索实现
 func (p *SusuAsyncPlugin) doSearch(client *http.Client, keyword string, ext map[string]interface{}) ([]model.SearchResult, error) {
+	// 记录搜索URL到日志
+	fmt.Printf("[%s] %s\n", p.Name(), "susuifa.com")
+	
 	// 构建搜索URL
 	searchURL := fmt.Sprintf(SearchURL, url.QueryEscape(keyword))
 	

@@ -525,6 +525,12 @@ func (p *BaseAsyncPlugin) Name() string {
 
 // Priority 返回插件优先级
 func (p *BaseAsyncPlugin) Priority() int {
+	// 首先检查是否有自定义优先级
+	statsManager := GetGlobalStatsManager()
+	if customPriority := statsManager.GetCustomPriority(p.name); customPriority > 0 {
+		return customPriority
+	}
+	// 返回默认优先级
 	return p.priority
 }
 
@@ -542,6 +548,19 @@ func (p *BaseAsyncPlugin) GetClient() *http.Client {
 // 第八部分：异步搜索核心逻辑
 // ============================================================
 
+// recordSearchStats 记录搜索统计
+func (p *BaseAsyncPlugin) recordSearchStats(resultCount int, startTime time.Time, success bool) {
+	statsManager := GetGlobalStatsManager()
+	responseTime := time.Since(startTime)
+	statsManager.RecordSearch(p.name, resultCount, responseTime, success)
+	
+	// 打印简要统计信息
+	if success && resultCount > 0 {
+		fmt.Printf("📊 [%s] 搜索完成: %d个结果 | 耗时: %dms\n", 
+			p.name, resultCount, responseTime.Milliseconds())
+	}
+}
+
 // AsyncSearch 异步搜索基础方法
 func (p *BaseAsyncPlugin) AsyncSearch(
 	keyword string,
@@ -549,6 +568,9 @@ func (p *BaseAsyncPlugin) AsyncSearch(
 	mainCacheKey string,
 	ext map[string]interface{},
 ) ([]model.SearchResult, error) {
+	// 记录搜索开始时间
+	searchStartTime := time.Now()
+	
 	// 确保ext不为nil
 	if ext == nil {
 		ext = make(map[string]interface{})
@@ -568,6 +590,9 @@ func (p *BaseAsyncPlugin) AsyncSearch(
 			recordCacheHit()
 			recordCacheAccess(pluginSpecificCacheKey)
 			
+			// 记录统计
+			p.recordSearchStats(len(cachedResult.Results), searchStartTime, true)
+			
 			// 如果缓存接近过期（已用时间超过TTL的80%），在后台刷新缓存
 			if time.Since(cachedResult.Timestamp) > (p.cacheTTL * 4 / 5) {
 				go p.refreshCacheInBackground(keyword, pluginSpecificCacheKey, searchFunc, cachedResult, mainCacheKey, ext)
@@ -580,6 +605,9 @@ func (p *BaseAsyncPlugin) AsyncSearch(
 		if len(cachedResult.Results) > 0 {
 			recordCacheHit()
 			recordCacheAccess(pluginSpecificCacheKey)
+			
+			// 记录统计
+			p.recordSearchStats(len(cachedResult.Results), searchStartTime, true)
 			
 			// 标记为部分过期
 			if time.Since(cachedResult.Timestamp) >= p.cacheTTL {
@@ -758,9 +786,13 @@ func (p *BaseAsyncPlugin) AsyncSearch(
 	select {
 	case results := <-resultChan:
 		close(doneChan)
+		// 记录统计
+		p.recordSearchStats(len(results), searchStartTime, true)
 		return results, nil
 	case err := <-errorChan:
 		close(doneChan)
+		// 记录统计（失败）
+		p.recordSearchStats(0, searchStartTime, false)
 		return nil, err
 	case <-time.After(responseTimeout):
 		// 插件响应超时，后台继续处理（优化完成，日志简化）
@@ -778,6 +810,8 @@ func (p *BaseAsyncPlugin) AsyncSearch(
 				recordCacheAccess(pluginSpecificCacheKey)
 				fmt.Printf("[%s] 响应超时，返回部分缓存: %s (项目数: %d)\n", 
 					p.name, pluginSpecificCacheKey, len(cachedResult.Results))
+				// 记录统计
+				p.recordSearchStats(len(cachedResult.Results), searchStartTime, true)
 				return cachedResult.Results, nil
 			}
 		}
@@ -793,6 +827,9 @@ func (p *BaseAsyncPlugin) AsyncSearch(
 		
 		// 🔧 修复：4秒超时时也要更新主缓存，标记为部分结果（空结果）
 		p.updateMainCacheWithFinal(mainCacheKey, []model.SearchResult{}, false)
+		
+		// 记录统计（超时，返回空结果）
+		p.recordSearchStats(0, searchStartTime, false)
 		
 		// fmt.Printf("[%s] 响应超时，后台继续处理: %s\n", p.name, pluginSpecificCacheKey)
 		return []model.SearchResult{}, nil

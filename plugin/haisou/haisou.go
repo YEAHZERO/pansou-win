@@ -313,6 +313,9 @@ func (p *HaisouPlugin) fetchSearchPage(client *http.Client, keyword string, page
 	// 构建搜索URL
 	searchURL := fmt.Sprintf("https://haisou.cc/api/pan/share/search?query=%s&scope=title&pan=%s&page=%d&filter_valid=true&filter_has_files=false",
 		url.QueryEscape(keyword), panType, pageNo)
+	
+	// 记录搜索URL到日志
+	fmt.Printf("[%s] %s\n", p.Name(), "haisou.cc")
 
 	if DebugLog {
 		fmt.Printf("[%s] 请求%s网盘第%d页: %s\n", p.Name(), panType, pageNo, searchURL)

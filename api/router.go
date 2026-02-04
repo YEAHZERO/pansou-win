@@ -75,6 +75,18 @@ func SetupRouter(searchService *service.SearchService) *gin.Engine {
 			
 			c.JSON(200, response)
 		})
+		
+		// 插件管理接口
+		plugins := api.Group("/plugins")
+		{
+			plugins.GET("", GetAllPluginsHandler)                          // 获取所有插件信息
+			plugins.GET("/stats", GetPluginStatsHandler)                   // 获取所有插件统计
+			plugins.GET("/stats/:name", GetPluginStatsDetailHandler)       // 获取单个插件统计
+			plugins.POST("/priority", SetPluginPriorityHandler)            // 设置插件优先级
+			plugins.POST("/priority/batch", BatchSetPluginPriorityHandler) // 批量设置优先级
+			plugins.DELETE("/priority/:name", ResetPluginPriorityHandler)  // 重置插件优先级
+			plugins.GET("/stats/export", ExportPluginStatsHandler)         // 导出统计数据
+		}
 	}
 	
 	// 注册插件的Web路由（如果插件实现了PluginWithWebHandler接口）

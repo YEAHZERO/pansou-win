@@ -179,6 +179,11 @@ func (p *Pan666AsyncPlugin) fetchPage(client *http.Client, keyword string, offse
 	apiURL := fmt.Sprintf("%s?filter[q]=%s&include=mostRelevantPost&page[offset]=%d&page[limit]=%d",
 		BaseURL, url.QueryEscape(keyword), offset, PageSize)
 	
+	// 记录搜索URL到日志
+	if offset == 0 {
+		fmt.Printf("[%s] %s\n", p.Name(), "www.pan666.cn")
+	}
+	
 	// 创建请求
 	req, err := http.NewRequest("GET", apiURL, nil)
 	if err != nil {

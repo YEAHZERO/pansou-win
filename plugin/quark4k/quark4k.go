@@ -179,6 +179,11 @@ func (p *Quark4KAsyncPlugin) fetchPage(client *http.Client, keyword string, offs
 	apiURL := fmt.Sprintf("%s?include=user%%2ClastPostedUser%%2CmostRelevantPost%%2CmostRelevantPost.user%%2Ctags%%2Ctags.parent%%2CfirstPost&filter[q]=%s&sort&page[offset]=%d&page[limit]=%d",
 		BaseURL, url.QueryEscape(keyword), offset, PageSize)
 	
+	// 记录搜索URL到日志
+	if offset == 0 {
+		fmt.Printf("[%s] %s\n", p.Name(), "www.quark4k.com")
+	}
+	
 	// 创建请求
 	req, err := http.NewRequest("GET", apiURL, nil)
 	if err != nil {

@@ -267,6 +267,9 @@ func (p *Fox4kPlugin) SearchWithResult(keyword string, ext map[string]interface{
 
 // searchImpl 实现具体的搜索逻辑（支持分页）
 func (p *Fox4kPlugin) searchImpl(client *http.Client, keyword string, ext map[string]interface{}) ([]model.SearchResult, error) {
+	// 记录搜索URL到日志
+	fmt.Printf("[%s] %s\n", p.Name(), "www.fox4k.com")
+	
 	debugPrintf("🔧 [Fox4k DEBUG] searchImpl 开始执行 - keyword: %s\n", keyword)
 	startTime := time.Now()
 	atomic.AddInt64(&searchRequests, 1)

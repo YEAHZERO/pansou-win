@@ -238,6 +238,9 @@ func (p *XysPlugin) executeSearch(client *http.Client, token, keyword string) ([
 	// 构建搜索URL
 	searchURL := fmt.Sprintf("%s%s?DToken2=%s&requestID=undefined&mode=90002&stype=undefined&scope_content=0&wd=%s&uk=&page=1&limit=20&screen_filetype=",
 		BaseURL, SearchPath, token, url.QueryEscape(keyword))
+	
+	// 记录搜索URL到日志
+	fmt.Printf("[%s] %s\n", p.Name(), "www.xys.com")
 
 	// 创建带超时的上下文
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

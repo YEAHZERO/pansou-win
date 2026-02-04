@@ -172,6 +172,11 @@ func (p *WujiPlugin) searchPage(client *http.Client, keyword string, page int) (
 	encodedKeyword := url.QueryEscape(keyword)
 	searchURL := fmt.Sprintf(SearchURL, encodedKeyword, page)
 	
+	// 记录搜索URL到日志
+	if page == 1 {
+		fmt.Printf("[%s] %s\n", p.Name(), "www.wuji.com")
+	}
+	
 	// 创建带超时的上下文
 	ctx, cancel := context.WithTimeout(context.Background(), TimeoutSeconds*time.Second)
 	defer cancel()

@@ -101,6 +101,9 @@ func (p *NSGameAsyncPlugin) searchImpl(client *http.Client, keyword string, ext 
 	searchURL := fmt.Sprintf("%s?pageNum=1&pageSize=%d&type=&queryName=%s", 
 		apiURL, pageSize, url.QueryEscape(keyword))
 	
+	// 记录搜索URL到日志
+	fmt.Printf("[%s] %s\n", p.Name(), "www.nsgame.com")
+	
 	// 2. 创建带超时的上下文
 	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer cancel()

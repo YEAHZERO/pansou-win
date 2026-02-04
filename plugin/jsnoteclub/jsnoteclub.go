@@ -111,6 +111,9 @@ func (p *JsNoteClubPlugin) SearchWithResult(keyword string, ext map[string]inter
 }
 
 func (p *JsNoteClubPlugin) searchImpl(client *http.Client, keyword string, ext map[string]interface{}) ([]model.SearchResult, error) {
+	// 记录搜索URL到日志
+	fmt.Printf("[%s] %s\n", p.Name(), "linux.do")
+	
 	if p.client != nil {
 		client = p.client
 	}

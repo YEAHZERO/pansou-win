@@ -123,6 +123,10 @@ func (p *DaishuPlugin) searchImpl(client *http.Client, keyword string, ext map[s
 	}
 
 	searchURL := fmt.Sprintf("https://www.daishuduanju.com/?s=%s", url.QueryEscape(keyword))
+	
+	// 记录搜索URL到日志
+	fmt.Printf("[%s] %s\n", p.Name(), "www.daishuduanju.com")
+	
 	ctx, cancel := context.WithTimeout(context.Background(), searchTimeout)
 	defer cancel()
 

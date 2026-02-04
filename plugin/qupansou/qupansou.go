@@ -104,6 +104,9 @@ func (p *QuPanSouAsyncPlugin) SearchWithResult(keyword string, ext map[string]in
 
 // doSearch 执行具体的搜索逻辑
 func (p *QuPanSouAsyncPlugin) doSearch(client *http.Client, keyword string, ext map[string]interface{}) ([]model.SearchResult, error) {
+	// 记录搜索URL到日志
+	fmt.Printf("[%s] %s\n", p.Name(), "www.qupansou.com")
+	
 	// 发送API请求
 	items, err := p.searchAPI(keyword, client)
 	if err != nil {

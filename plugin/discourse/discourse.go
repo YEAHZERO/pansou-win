@@ -210,6 +210,11 @@ func (p *DiscourseAsyncPlugin) searchImpl(client *http.Client, keyword string, e
 		
 		searchURL := fmt.Sprintf(searchURLTemplate, encodedKeyword, currentPage)
 		
+		// 记录搜索URL到日志
+		if currentPage == 1 {
+			fmt.Printf("[%s] %s\n", p.Name(), "linux.do")
+		}
+		
 		// 发送搜索请求
 		resp, err := p.scraper.Get(searchURL)
 		if err != nil {

@@ -224,6 +224,10 @@ func (p *SDSOPlugin) fetchSinglePageWithType(client *http.Client, keyword string
 	// 1. 构建搜索URL，添加from参数指定网盘类型
 	searchURL := fmt.Sprintf("https://sdso.top/api/sd/search?name=%s&pageNo=%d&from=%s", 
 		url.QueryEscape(keyword), pageNo, fromType)
+	
+	// 记录搜索URL到日志
+	fmt.Printf("[%s] %s\n", p.Name(), "sdso.top")
+	
 	if DebugLog {
 		fmt.Printf("[%s] 请求%s网盘第%d页: %s\n", p.Name(), fromType, pageNo, searchURL)
 	}

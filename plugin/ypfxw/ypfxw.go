@@ -123,6 +123,10 @@ func (p *YpfxwPlugin) searchImpl(client *http.Client, keyword string, ext map[st
 	}
 
 	searchURL := fmt.Sprintf("https://ypfxw.com/search.php?q=%s", url.QueryEscape(keyword))
+	
+	// 记录搜索URL到日志
+	fmt.Printf("[%s] %s\n", p.Name(), "ypfxw.com")
+	
 	ctx, cancel := context.WithTimeout(context.Background(), searchTimeout)
 	defer cancel()
 

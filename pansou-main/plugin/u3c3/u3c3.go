@@ -213,7 +213,7 @@ func (p *U3c3Plugin) doSearch(keyword, search2 string) ([]model.SearchResult, er
 	searchURL := fmt.Sprintf("%s/?search2=%s&search=%s", BaseURL, search2, encodedKeyword)
 
 	if p.debugMode {
-		log.Printf("[U3C3] 搜索URL: %s", searchURL)
+		log.Printf("[U3C3] %s", "www.u3c3.com")
 	}
 
 	client := &http.Client{

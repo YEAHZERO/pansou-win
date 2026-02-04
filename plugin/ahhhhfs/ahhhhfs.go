@@ -156,6 +156,9 @@ func (p *AhhhhfsAsyncPlugin) searchImpl(client *http.Client, keyword string, ext
 	// 1. 构建搜索URL
 	searchURL := fmt.Sprintf("https://www.ahhhhfs.com/?cat=&s=%s", url.QueryEscape(keyword))
 	
+	// 记录搜索URL到日志
+	fmt.Printf("[%s] %s\n", p.Name(), "www.ahhhhfs.com")
+	
 	// 2. 创建带超时的上下文
 	ctx, cancel := context.WithTimeout(context.Background(), DefaultTimeout)
 	defer cancel()

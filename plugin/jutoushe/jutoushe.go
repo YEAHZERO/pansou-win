@@ -46,6 +46,9 @@ func (p *JutoushePlugin) searchImpl(client *http.Client, keyword string, ext map
 	// 1. 构建搜索URL
 	baseURL := "https://1.star2.cn"
 	searchURL := fmt.Sprintf("%s/search/?keyword=%s", baseURL, url.QueryEscape(keyword))
+	
+	// 记录搜索URL到日志
+	fmt.Printf("[%s] %s\n", p.Name(), "1.star2.cn")
 
 	// 2. 创建带超时的上下文
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

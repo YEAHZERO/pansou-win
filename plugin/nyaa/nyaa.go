@@ -99,6 +99,9 @@ func (p *NyaaPlugin) searchImpl(client *http.Client, keyword string, ext map[str
 	// 1. 构建搜索URL
 	searchURL := fmt.Sprintf("%s/?f=0&c=0_0&q=%s", SiteURL, url.QueryEscape(searchKeyword))
 	
+	// 记录搜索URL到日志
+	fmt.Printf("[%s] %s\n", p.Name(), "nyaa.si")
+	
 	// 2. 创建带超时的上下文
 	ctx, cancel := context.WithTimeout(context.Background(), DefaultTimeout)
 	defer cancel()

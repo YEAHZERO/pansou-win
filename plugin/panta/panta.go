@@ -238,6 +238,9 @@ func (p *PantaAsyncPlugin) doSearch(client *http.Client, keyword string, ext map
 	// 构建搜索URL
 	searchURL := fmt.Sprintf(searchURLTemplate, encodedKeyword)
 	
+	// 记录搜索URL到日志
+	fmt.Printf("[%s] %s\n", p.Name(), "www.panta.cloud")
+	
 	// 创建一个带有超时的上下文
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(defaultTimeout)*time.Second)
 	defer cancel()

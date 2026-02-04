@@ -122,6 +122,9 @@ func (p *PiankuPlugin) searchImpl(client *http.Client, keyword string, ext map[s
 	// 构建请求URL
 	searchURL := fmt.Sprintf("%s%s?wd=%s", BaseURL, SearchPath, url.QueryEscape(searchKeyword))
 	
+	// 记录搜索URL到日志
+	fmt.Printf("[%s] %s\n", p.Name(), "www.pianku.li")
+	
 	// 创建带超时的上下文
 	ctx, cancel := context.WithTimeout(context.Background(), TimeoutSeconds*time.Second)
 	defer cancel()

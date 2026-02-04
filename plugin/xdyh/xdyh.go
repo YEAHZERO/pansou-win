@@ -103,6 +103,9 @@ func (p *XdyhAsyncPlugin) SearchWithResult(keyword string, ext map[string]interf
 
 // searchImpl 具体的搜索实现
 func (p *XdyhAsyncPlugin) searchImpl(client *http.Client, keyword string, ext map[string]interface{}) ([]model.SearchResult, error) {
+	// 记录搜索URL到日志
+	fmt.Printf("[%s] %s\n", p.Name(), "www.xdyh.cc")
+	
 	// 1. 检查缓存
 	cacheKey := fmt.Sprintf("%s_%s", pluginName, keyword)
 	if cached, ok := searchCache.Load(cacheKey); ok {

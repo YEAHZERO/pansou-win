@@ -119,6 +119,9 @@ func (p *WanouAsyncPlugin) searchImpl(client *http.Client, keyword string, ext m
 	// 构建API搜索URL
 	searchURL := fmt.Sprintf("https://woog.nxog.eu.org/api.php/provide/vod?ac=detail&wd=%s", url.QueryEscape(keyword))
 	
+	// 记录搜索URL到日志
+	fmt.Printf("[%s] %s\n", p.Name(), "woog.nxog.eu.org")
+	
 	// 创建HTTP请求
 	ctx, cancel := context.WithTimeout(context.Background(), DefaultTimeout)
 	defer cancel()

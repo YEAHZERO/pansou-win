@@ -76,6 +76,9 @@ func (p *QuarksooAsyncPlugin) doSearch(client *http.Client, keyword string, ext 
 	// 构建搜索URL
 	searchURL := fmt.Sprintf("%s?q=%s", BaseURL, url.QueryEscape(keyword))
 	
+	// 记录搜索URL到日志
+	fmt.Printf("[%s] %s\n", p.Name(), "www.quarksoo.com")
+	
 	// 创建请求
 	req, err := http.NewRequest("GET", searchURL, nil)
 	if err != nil {

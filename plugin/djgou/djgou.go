@@ -113,6 +113,9 @@ func (p *DjgouPlugin) searchImpl(client *http.Client, keyword string, ext map[st
 	// 1. 构建搜索URL
 	searchURL := fmt.Sprintf("%s/search.php?q=%s&page=1", SiteURL, url.QueryEscape(keyword))
 	
+	// 记录搜索URL到日志
+	fmt.Printf("[%s] %s\n", p.Name(), "www.djgou.com")
+	
 	// 2. 创建带超时的上下文
 	ctx, cancel := context.WithTimeout(context.Background(), DefaultTimeout)
 	defer cancel()

@@ -74,6 +74,9 @@ func (p *AshPlugin) searchImpl(client *http.Client, keyword string, ext map[stri
 	// 构建搜索URL
 	searchURL := fmt.Sprintf("https://so.allsharehub.com/s/%s.html", url.QueryEscape(keyword))
 	
+	// 记录搜索URL到日志
+	fmt.Printf("[%s] %s\n", p.Name(), "so.allsharehub.com")
+	
 	// 创建带超时的上下文（减少超时时间，提高响应速度）
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()

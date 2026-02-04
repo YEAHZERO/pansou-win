@@ -123,6 +123,9 @@ func (p *CldiPlugin) searchPage(client *http.Client, keyword string, page int) (
 	// 构建搜索URL (分类=0全部, 排序=2按添加时间)
 	searchURL := fmt.Sprintf("https://wvmzbxki.1122132.xyz/search-%s-0-2-%d.html", url.QueryEscape(keyword), page)
 	
+	// 记录搜索URL到日志
+	fmt.Printf("[%s] %s\n", p.Name(), "wvmzbxki.1122132.xyz")
+	
 	// 创建带超时的上下文
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

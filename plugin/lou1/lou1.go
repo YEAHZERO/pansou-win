@@ -170,6 +170,9 @@ type searchThread struct {
 
 func (p *Lou1Plugin) fetchSearchResults(client *http.Client, keyword string) ([]searchThread, error) {
 	searchURL := fmt.Sprintf(searchPathFormat, encodeKeyword(keyword))
+	
+	// 记录搜索URL到日志
+	fmt.Printf("[%s] %s\n", p.Name(), "www.lou1.cc")
 
 	ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
 	defer cancel()

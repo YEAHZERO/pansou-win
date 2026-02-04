@@ -106,6 +106,9 @@ func (p *CygPlugin) searchImpl(client *http.Client, keyword string, ext map[stri
 	// 1. 构建搜索URL
 	searchURL := fmt.Sprintf("https://cyg.app/wp-json/wp/v2/posts?per_page=%d&orderby=%s&order=%s&page=%d&search=%s",
 		opts.PerPage, opts.OrderBy, opts.Order, opts.Page, url.QueryEscape(keyword))
+	
+	// 记录搜索URL到日志
+	fmt.Printf("[%s] %s\n", p.Name(), "cyg.app")
 
 	// 2. 发送搜索请求
 	posts, err := p.fetchSearchResults(client, searchURL)

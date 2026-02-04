@@ -77,6 +77,9 @@ func (p *PanwikiPlugin) switchToBackupDomain() {
 
 // searchImpl 实现搜索逻辑
 func (p *PanwikiPlugin) searchImpl(client *http.Client, keyword string, ext map[string]interface{}) ([]model.SearchResult, error) {
+	// 记录搜索URL到日志
+	fmt.Printf("[%s] %s\n", p.Name(), "www.panwiki.com")
+	
 	// 第一页搜索
 	firstPageResults, err := p.searchPage(client, keyword, 1)
 	if err != nil {

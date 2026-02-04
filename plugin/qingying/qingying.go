@@ -57,7 +57,7 @@ func (p *QingYingPlugin) SearchWithResult(keyword string, ext map[string]interfa
 func (p *QingYingPlugin) searchImpl(client *http.Client, keyword string, ext map[string]interface{}) ([]model.SearchResult, error) {
 	debugPrintf("🔍 开始搜索 - keyword: %s\n", keyword)
 	searchURL := fmt.Sprintf("%s%s?wd=%s", baseURL, searchPath, url.QueryEscape(keyword))
-	debugPrintf("📝 搜索URL: %s\n", searchURL)
+	debugPrintf("📝 %s\n", "revohd.com")
 	
 	items, err := p.fetchSearchResults(searchURL, client)
 	if err != nil {

@@ -149,6 +149,11 @@ func initApp() {
 
 	// 确保异步插件系统初始化
 	plugin.InitAsyncPluginSystem()
+	
+	// 初始化插件统计管理器
+	statsManager := plugin.GetGlobalStatsManager()
+	// 启动自动保存（每5分钟保存一次）
+	statsManager.StartAutoSave(5 * time.Minute)
 }
 
 // startServer 启动Web服务器
@@ -221,6 +226,17 @@ func startServer() {
 	// 等待中断信号
 	<-quit
 	fmt.Println("正在关闭服务器...")
+	
+	// 保存插件统计数据
+	statsManager := plugin.GetGlobalStatsManager()
+	if err := statsManager.Save(); err != nil {
+		log.Printf("保存插件统计数据失败: %v", err)
+	} else {
+		fmt.Println("插件统计数据已保存")
+	}
+	
+	// 打印最终统计信息
+	statsManager.PrintStats()
 
 	// 优先保存缓存数据到磁盘（数据安全第一）
 	// 增加关闭超时时间，确保数据有足够时间保存
