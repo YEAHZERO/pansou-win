@@ -1460,8 +1460,13 @@ func (s *SearchService) searchPlugins(keyword string, plugins []string, forceRef
 			pluginResults := result.([]model.SearchResult)
 			// 只添加有链接的结果到最终结果中
 			for _, pluginResult := range pluginResults {
+				fmt.Printf("[searchPlugins] 检查结果: title='%s', links数量=%d\n", 
+					pluginResult.Title, len(pluginResult.Links))
 				if len(pluginResult.Links) > 0 {
+					fmt.Printf("[searchPlugins] ✅ 添加结果: title='%s'\n", pluginResult.Title)
 					allResults = append(allResults, pluginResult)
+				} else {
+					fmt.Printf("[searchPlugins] ❌ 过滤结果（无链接）: title='%s'\n", pluginResult.Title)
 				}
 			}
 		}
