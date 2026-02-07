@@ -10,12 +10,13 @@ PanSou 是一个强大的网盘搜索聚合系统，采用纯 Go 语言实现，
 
 ### 核心特性
 
-- ✅ 多源聚合搜索（Telegram 频道 + Pioz插件）
+- ✅ Pioz 插件搜索（三重搜索策略 + 强大反爬绕过）
 - ✅ 高性能缓存机制（两级缓存 + 异步更新）
-- ✅ Pioz插件（三重搜索策略 + 强大反爬绕过）
 - ✅ 支持16种网盘类型（夸克、百度、阿里云、UC、迅雷等）
 - ✅ RESTful API 接口
 - ✅ JWT 认证和权限控制
+- ✅ 已禁用 Telegram 频道（专注 Pioz 搜索）
+- ✅ 优化配置（10秒超时，16个工作线程）
 
 ---
 
@@ -65,10 +66,10 @@ curl "http://localhost:8889/api/search?keyword=测试" \
 REM 端口配置
 set PORT=8889
 
-REM Telegram频道配置
-set CHANNELS=tgsearchers3,tgsearchers4,Aliyun_4K_Movies
+REM Telegram频道配置（已禁用，只使用Pioz）
+set CHANNELS=
 
-REM 插件配置（当前只启用pioz）
+REM 插件配置（只启用pioz）
 set ASYNC_PLUGIN_ENABLED=true
 set ENABLED_PLUGINS=pioz
 
@@ -76,10 +77,14 @@ REM 认证配置
 set AUTH_ENABLED=true
 set AUTH_USERS=admin:123456
 
-REM 性能配置
-set CONCURRENCY=25
-set CACHE_MAX_SIZE=300
-set CACHE_TTL=90
+REM 性能配置（已优化）
+set CONCURRENCY=15
+set ASYNC_RESPONSE_TIMEOUT=10
+set ASYNC_MAX_BACKGROUND_WORKERS=16
+set ASYNC_MAX_BACKGROUND_TASKS=80
+set CACHE_MAX_SIZE=500
+set CACHE_TTL=120
+set PLUGIN_TIMEOUT=20
 ```
 
 ### 备用插件
@@ -200,6 +205,46 @@ pansou/
 
 ---
 
+## 测试和诊断
+
+### 快速测试
+
+```bash
+# 运行 Pioz 专项测试（推荐）
+test-pioz.bat
+
+# 运行系统诊断
+diagnose.bat
+```
+
+### Pioz 专项测试
+
+`test-pioz.bat` 会自动测试：
+1. Pioz 网站访问性（pioz.cn）
+2. 登录认证
+3. 三个不同关键词的搜索
+4. 结果分析和保存
+
+### 手动测试
+
+```bash
+# 1. 健康检查
+curl http://localhost:8889/api/health
+
+# 2. 登录获取Token
+curl -X POST http://localhost:8889/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d "{\"username\":\"admin\",\"password\":\"123456\"}"
+
+# 3. 搜索测试（只使用Pioz，不使用Telegram）
+curl -X POST http://localhost:8889/api/search \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"keyword\":\"电影\",\"channels\":[],\"concurrency\":5}"
+```
+
+---
+
 ## 部署流程
 
 ### 首次部署
@@ -293,7 +338,29 @@ set HTTP_MAX_CONNS=200
 
 ## 常见问题
 
-### 1. 端口被占用
+### 1. Pioz 返回 0 个结果
+
+**可能原因**：
+- 网站访问受限
+- 关键词不匹配
+- 网络连接问题
+
+**解决方案**：
+```bash
+# 1. 测试网站访问
+curl -I https://www.pioz.cc
+
+# 2. 配置代理（如果需要）
+set PROXY=http://127.0.0.1:7890
+
+# 3. 增加超时时间
+set ASYNC_RESPONSE_TIMEOUT=10
+
+# 4. 运行诊断
+diagnose.bat
+```
+
+### 2. 端口被占用
 
 **解决方案**：
 ```bash
@@ -307,14 +374,53 @@ taskkill /F /PID 进程ID
 set PORT=8890
 ```
 
-### 2. 搜索无结果
+### 2. 端口被占用
+
+**解决方案**：
+```bash
+# 查看占用端口的进程
+netstat -ano | findstr :8889
+
+# 结束进程
+taskkill /F /PID 进程ID
+
+# 或修改端口
+set PORT=8890
+```
+
+### 3. 搜索响应慢
+
+**优化方案**：
+```batch
+# 增加超时时间
+set ASYNC_RESPONSE_TIMEOUT=10
+
+# 增加工作线程
+set ASYNC_MAX_BACKGROUND_WORKERS=20
+
+# 增加缓存
+set CACHE_MAX_SIZE=500
+set CACHE_TTL=120
+```
+
+详细优化指南请查看：[OPTIMIZATION_GUIDE.md](OPTIMIZATION_GUIDE.md)
+
+### 4. 搜索无结果
 
 **检查项**：
 1. 确认插件已启用：`set ENABLED_PLUGINS=pioz`
 2. 确认异步插件已启用：`set ASYNC_PLUGIN_ENABLED=true`
 3. 查看服务器日志，检查是否有错误
 
-### 3. 编译失败
+### 4. 搜索无结果
+
+**检查项**：
+1. 确认插件已启用：`set ENABLED_PLUGINS=pioz`
+2. 确认异步插件已启用：`set ASYNC_PLUGIN_ENABLED=true`
+3. 运行诊断脚本：`diagnose.bat`
+4. 查看服务器日志，检查是否有错误
+
+### 5. 编译失败
 
 **解决方案**：
 ```bash
@@ -328,7 +434,21 @@ go mod download
 go build -o pansou.exe
 ```
 
-### 4. 认证失败
+### 5. 编译失败
+
+**解决方案**：
+```bash
+# 清理缓存
+go clean -modcache
+
+# 重新下载依赖
+go mod download
+
+# 重新编译
+go build -o pansou.exe
+```
+
+### 6. 认证失败
 
 **检查项**：
 1. 确认认证已启用：`set AUTH_ENABLED=true`

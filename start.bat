@@ -57,31 +57,32 @@ if %errorlevel% equ 0 (
     echo.
 )
 
-REM Telegram channels (recommended, can be customized)
-set CHANNELS=tgsearchers3,tgsearchers4,Aliyun_4K_Movies,bdbdndn11,yunpanx,bsbdbfjfjff,yp123pan,sbsbsnsqq,yunpanxunlei,tianyifc,BaiduCloudDisk,txtyzy,peccxinpd,gotopan,PanjClub
+REM Telegram channels (DISABLED - not using Telegram)
+set CHANNELS=
 
 REM Plugin configuration (only pioz enabled, others are backup)
 set ASYNC_PLUGIN_ENABLED=true
 set ENABLED_PLUGINS=pioz
 
-REM Performance configuration
-set CONCURRENCY=25
-set ASYNC_RESPONSE_TIMEOUT=5
-set ASYNC_MAX_BACKGROUND_WORKERS=12
-set ASYNC_MAX_BACKGROUND_TASKS=60
-set CACHE_MAX_SIZE=300
-set CACHE_TTL=90
+REM Performance configuration (optimized for Pioz)
+set CONCURRENCY=15
+set ASYNC_RESPONSE_TIMEOUT=10
+set ASYNC_MAX_BACKGROUND_WORKERS=16
+set ASYNC_MAX_BACKGROUND_TASKS=80
+set CACHE_MAX_SIZE=500
+set CACHE_TTL=120
+set PLUGIN_TIMEOUT=20
 
 REM Authentication
 set AUTH_ENABLED=true
 set AUTH_USERS=admin:123456
 set AUTH_JWT_SECRET=pansou-secret-key-2024
 
-REM HTTP server configuration
-set HTTP_READ_TIMEOUT=30
-set HTTP_WRITE_TIMEOUT=30
+REM HTTP server configuration (optimized for Pioz)
+set HTTP_READ_TIMEOUT=40
+set HTTP_WRITE_TIMEOUT=40
 set HTTP_IDLE_TIMEOUT=120
-set HTTP_MAX_CONNS=200
+set HTTP_MAX_CONNS=300
 
 echo Configuration:
 echo ================================
