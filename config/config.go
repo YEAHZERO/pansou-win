@@ -189,7 +189,7 @@ func UpdateDefaultConcurrency(pluginCount int) {
 func getPort() string {
 	port := os.Getenv("PORT")
 	if port == "" {
-		return "8888"
+		return "8889"
 	}
 	return port
 }

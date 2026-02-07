@@ -1,25 +1,25 @@
 @echo off
 chcp 65001 >nul
-title PanSou ç½‘ç›˜æœç´¢æœåŠ¡
+title PanSou ÍøÅÌËÑË÷·þÎñ
 
 echo ================================
-echo    PanSou ç½‘ç›˜æœç´¢æœåŠ¡
+echo    PanSou ÍøÅÌËÑË÷·þÎñ
 echo ================================
 echo.
 
-REM æ£€æŸ¥æ˜¯å¦å­˜åœ¨ pansou.exe
+REM ¼ì²éÊÇ·ñ´æÔÚ pansou.exe
 if not exist "pansou.exe" (
-    echo âŒ æœªæ‰¾åˆ° pansou.exe æ–‡ä»¶ï¼
+    echo ? Î´ÕÒµ½ pansou.exe ÎÄ¼þ£¡
     echo.
-    echo è¯·å…ˆæž„å»ºé¡¹ç›®ï¼š
+    echo ÇëÏÈ¹¹½¨ÏîÄ¿£º
     echo   go build -o pansou.exe .
     echo.
-    echo æˆ–ä»Ž GitHub Releases ä¸‹è½½é¢„ç¼–è¯‘ç‰ˆæœ¬
+    echo »ò´Ó GitHub Releases ÏÂÔØÔ¤±àÒë°æ±¾
     pause
     exit /b 1
 )
 
-REM è®¾ç½®çŽ¯å¢ƒå˜é‡
+REM ÉèÖÃ»·¾³±äÁ¿
 set PORT=8888
 set CACHE_ENABLED=true
 set CACHE_PATH=.\cache
@@ -30,35 +30,35 @@ set ASYNC_RESPONSE_TIMEOUT=4
 set ASYNC_MAX_BACKGROUND_WORKERS=10
 set ASYNC_MAX_BACKGROUND_TASKS=50
 
-REM å¯é€‰ï¼šå¯ç”¨è®¤è¯ï¼ˆå–æ¶ˆæ³¨é‡Šä¸‹é¢ä¸¤è¡Œï¼‰
+REM ¿ÉÑ¡£ºÆôÓÃÈÏÖ¤£¨È¡Ïû×¢ÊÍÏÂÃæÁ½ÐÐ£©
 REM set AUTH_ENABLED=true
 REM set AUTH_USERS=admin:your_password
 
-echo é…ç½®ä¿¡æ¯:
-echo ç«¯å£: %PORT%
-echo ç¼“å­˜: %CACHE_ENABLED%
-echo ç¼“å­˜è·¯å¾„: %CACHE_PATH%
-echo æ’ä»¶ç³»ç»Ÿ: %ASYNC_PLUGIN_ENABLED%
-echo å¯ç”¨æ’ä»¶: %ENABLED_PLUGINS%
-echo æ—¶åŒº: %TZ%
+echo ÅäÖÃÐÅÏ¢:
+echo ¶Ë¿Ú: %PORT%
+echo »º´æ: %CACHE_ENABLED%
+echo »º´æÂ·¾¶: %CACHE_PATH%
+echo ²å¼þÏµÍ³: %ASYNC_PLUGIN_ENABLED%
+echo ÆôÓÃ²å¼þ: %ENABLED_PLUGINS%
+echo Ê±Çø: %TZ%
 echo.
 
-REM åˆ›å»ºç¼“å­˜ç›®å½•
+REM ´´½¨»º´æÄ¿Â¼
 if not exist "%CACHE_PATH%" (
     mkdir "%CACHE_PATH%"
-    echo âœ… å·²åˆ›å»ºç¼“å­˜ç›®å½•: %CACHE_PATH%
+    echo ? ÒÑ´´½¨»º´æÄ¿Â¼: %CACHE_PATH%
 )
 
-echo ðŸš€ å¯åŠ¨æœåŠ¡å™¨...
-echo è®¿é—®åœ°å€: http://localhost:%PORT%
-echo å¥åº·æ£€æŸ¥: http://localhost:%PORT%/api/health
+echo ?? Æô¶¯·þÎñÆ÷...
+echo ·ÃÎÊµØÖ·: http://localhost:%PORT%
+echo ½¡¿µ¼ì²é: http://localhost:%PORT%/api/health
 echo.
-echo æŒ‰ Ctrl+C åœæ­¢æœåŠ¡
+echo °´ Ctrl+C Í£Ö¹·þÎñ
 echo.
 
-REM å¯åŠ¨æœåŠ¡
+REM Æô¶¯·þÎñ
 pansou.exe
 
 echo.
-echo æœåŠ¡å™¨å·²åœæ­¢
+echo ·þÎñÆ÷ÒÑÍ£Ö¹
 pause

@@ -1,66 +1,66 @@
 @echo off
 chcp 65001 >nul
-title PanSou æœåŠ¡æµ‹è¯•
+title PanSou ·þÎñ²âÊÔ
 
 echo ================================
-echo    PanSou æœåŠ¡è¿žæŽ¥æµ‹è¯•
+echo    PanSou ·þÎñÁ¬½Ó²âÊÔ
 echo ================================
 echo.
 
 set SERVER_URL=http://localhost:8888
 
-echo ðŸ” æµ‹è¯•æœåŠ¡å™¨è¿žæŽ¥...
-echo æœåŠ¡åœ°å€: %SERVER_URL%
+echo ?? ²âÊÔ·þÎñÆ÷Á¬½Ó...
+echo ·þÎñµØÖ·: %SERVER_URL%
 echo.
 
-REM æµ‹è¯•å¥åº·æ£€æŸ¥æŽ¥å£
-echo 1ï¸âƒ£ å¥åº·æ£€æŸ¥æµ‹è¯•:
-curl -s -w "çŠ¶æ€ç : %%{http_code}\n" %SERVER_URL%/api/health
+REM ²âÊÔ½¡¿µ¼ì²é½Ó¿Ú
+echo 1?? ½¡¿µ¼ì²é²âÊÔ:
+curl -s -w "×´Ì¬Âë: %%{http_code}\n" %SERVER_URL%/api/health
 
 if %errorlevel% equ 0 (
-    echo âœ… å¥åº·æ£€æŸ¥æˆåŠŸ
+    echo ? ½¡¿µ¼ì²é³É¹¦
 ) else (
-    echo âŒ å¥åº·æ£€æŸ¥å¤±è´¥
+    echo ? ½¡¿µ¼ì²éÊ§°Ü
     echo.
-    echo å¯èƒ½çš„åŽŸå› :
-    echo 1. æœåŠ¡æœªå¯åŠ¨ - è¯·è¿è¡Œ start-pansou.bat
-    echo 2. ç«¯å£è¢«å ç”¨ - æ£€æŸ¥ç«¯å£ 8888
-    echo 3. é˜²ç«å¢™é˜»æ­¢ - æ£€æŸ¥é˜²ç«å¢™è®¾ç½®
+    echo ¿ÉÄÜµÄÔ­Òò:
+    echo 1. ·þÎñÎ´Æô¶¯ - ÇëÔËÐÐ start-pansou.bat
+    echo 2. ¶Ë¿Ú±»Õ¼ÓÃ - ¼ì²é¶Ë¿Ú 8888
+    echo 3. ·À»ðÇ½×èÖ¹ - ¼ì²é·À»ðÇ½ÉèÖÃ
     goto :end
 )
 
 echo.
 
-REM æµ‹è¯•æœç´¢æŽ¥å£
-echo 2ï¸âƒ£ æœç´¢æŽ¥å£æµ‹è¯•:
-echo å‘é€æµ‹è¯•æœç´¢è¯·æ±‚...
+REM ²âÊÔËÑË÷½Ó¿Ú
+echo 2?? ËÑË÷½Ó¿Ú²âÊÔ:
+echo ·¢ËÍ²âÊÔËÑË÷ÇëÇó...
 
 curl -s -X POST ^
   -H "Content-Type: application/json" ^
   -d "{\"kw\":\"test\",\"res\":\"merge\"}" ^
-  -w "çŠ¶æ€ç : %%{http_code}\n" ^
+  -w "×´Ì¬Âë: %%{http_code}\n" ^
   %SERVER_URL%/api/search
 
 if %errorlevel% equ 0 (
-    echo âœ… æœç´¢æŽ¥å£å“åº”æ­£å¸¸
+    echo ? ËÑË÷½Ó¿ÚÏìÓ¦Õý³£
 ) else (
-    echo âŒ æœç´¢æŽ¥å£æµ‹è¯•å¤±è´¥
+    echo ? ËÑË÷½Ó¿Ú²âÊÔÊ§°Ü
 )
 
 echo.
 
-REM æ˜¾ç¤ºæœåŠ¡ä¿¡æ¯
-echo 3ï¸âƒ£ æœåŠ¡ä¿¡æ¯:
-echo æœ¬åœ°è®¿é—®: %SERVER_URL%
-echo API æ–‡æ¡£: %SERVER_URL%/api/health
+REM ÏÔÊ¾·þÎñÐÅÏ¢
+echo 3?? ·þÎñÐÅÏ¢:
+echo ±¾µØ·ÃÎÊ: %SERVER_URL%
+echo API ÎÄµµ: %SERVER_URL%/api/health
 echo.
 
-echo ðŸŽ¯ æµ‹è¯•å®Œæˆï¼
+echo ?? ²âÊÔÍê³É£¡
 echo.
-echo å¦‚æžœæµ‹è¯•æˆåŠŸï¼Œä½ å¯ä»¥:
-echo 1. åœ¨æµè§ˆå™¨ä¸­è®¿é—® %SERVER_URL%/api/health
-echo 2. é…ç½® MCP æœåŠ¡è¿žæŽ¥åˆ°æ­¤åœ°å€
-echo 3. å¼€å§‹ä½¿ç”¨æœç´¢åŠŸèƒ½
+echo Èç¹û²âÊÔ³É¹¦£¬Äã¿ÉÒÔ:
+echo 1. ÔÚä¯ÀÀÆ÷ÖÐ·ÃÎÊ %SERVER_URL%/api/health
+echo 2. ÅäÖÃ MCP ·þÎñÁ¬½Óµ½´ËµØÖ·
+echo 3. ¿ªÊ¼Ê¹ÓÃËÑË÷¹¦ÄÜ
 
 :end
 echo.
