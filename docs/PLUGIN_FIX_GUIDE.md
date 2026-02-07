@@ -212,6 +212,20 @@ Plugin.searchImpl(client, keyword, ext)
 1. API handler 参数名是否正确 (`keyword` vs `kw`)
 2. goroutine 闭包是否正确捕获变量
 3. 函数签名是否匹配
+4. POST 请求的 JSON 字段名是否正确
+
+### 问题: PowerShell 中文编码问题
+**症状**: 中文关键词在日志中显示为 `????`
+**原因**: PowerShell 的默认编码导致中文字符丢失
+**解决方案**:
+```powershell
+# 错误方式 - 中文会变成 ????
+$body = @{keyword='太奶奶'} | ConvertTo-Json
+
+# 正确方式 - 使用 UTF-8 编码
+$body = '{"keyword":"太奶奶"}'
+$result = Invoke-RestMethod -Uri $url -Method POST -Body ([System.Text.Encoding]::UTF8.GetBytes($body)) -ContentType "application/json; charset=utf-8"
+```
 
 ### 问题: 返回0结果但API正常
 **检查点**:

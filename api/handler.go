@@ -168,6 +168,16 @@ func SearchHandler(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, model.NewErrorResponse(400, "无效的请求参数: "+err.Error()))
 			return
 		}
+		
+		// 兼容性处理：如果 Keyword 为空，尝试从原始 JSON 中读取 "keyword" 字段
+		if req.Keyword == "" {
+			var rawMap map[string]interface{}
+			if err := jsonutil.Unmarshal(data, &rawMap); err == nil {
+				if keyword, ok := rawMap["keyword"].(string); ok {
+					req.Keyword = keyword
+				}
+			}
+		}
 	}
 	
 	// 检查并设置默认值

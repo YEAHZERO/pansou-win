@@ -205,12 +205,6 @@ func (p *Pioz2Plugin) performDeepSearch(client *http.Client, keyword string) ([]
 	var results []model.SearchResult
 	for _, item := range apiResp.Results {
 		result := p.convertToSearchResult(item)
-		fmt.Printf("[%s] 转换结果: title='%s', links数量=%d\n", 
-			p.Name(), result.Title, len(result.Links))
-		if len(result.Links) > 0 {
-			fmt.Printf("[%s] 链接详情: URL='%s', Type='%s'\n", 
-				p.Name(), result.Links[0].URL, result.Links[0].Type)
-		}
 		results = append(results, result)
 	}
 	
