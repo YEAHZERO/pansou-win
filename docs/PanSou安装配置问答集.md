@@ -592,3 +592,10 @@ curl http://localhost:8888/api/health
 ---
 
 *本文档基于实际问答整理，持续更新中。如有问题请参考相关文档或提交 GitHub Issues。*
+
+
+---
+
+**维护者**: abcxyzNone  
+**AI工具**: Kiro (Claude Sonnet 4.5)  
+**致谢**: PanSou Team & fish2018

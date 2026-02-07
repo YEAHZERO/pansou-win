@@ -436,3 +436,10 @@ go build -o pansou.exe
 **适用版本**: PanSou v1.0+  
 **维护者**: abcxyzNone  
 **致谢**: PanSou Team
+
+
+---
+
+**维护者**: abcxyzNone  
+**AI工具**: Kiro (Claude Sonnet 4.5)  
+**致谢**: PanSou Team & fish2018

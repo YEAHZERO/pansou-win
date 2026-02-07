@@ -711,3 +711,10 @@ python search.py "Python教程" --cloud-types baidu,aliyun --limit 5
 5. **命令行工具**: 自定义脚本
 
 选择最适合你的方式开始使用吧！🚀
+
+
+---
+
+**维护者**: abcxyzNone  
+**AI工具**: Kiro (Claude Sonnet 4.5)  
+**致谢**: PanSou Team & fish2018

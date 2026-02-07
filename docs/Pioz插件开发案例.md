@@ -776,3 +776,10 @@ Pioz 插件通过以下技术实现了高质量的网盘搜索：
 **维护者**: abcxyzNone  
 **AI工具**: Kiro (Claude Sonnet 4.5)  
 **致谢**: PanSou Team
+
+
+---
+
+**维护者**: abcxyzNone  
+**AI工具**: Kiro (Claude Sonnet 4.5)  
+**致谢**: PanSou Team & fish2018
