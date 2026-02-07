@@ -841,6 +841,9 @@ func (p *BaseAsyncPlugin) AsyncSearchWithResult(
 		ext = make(map[string]interface{})
 	}
 	
+	// 设置当前关键词（用于日志和缓存更新）
+	p.currentKeyword = keyword
+	
 	now := time.Now()
 	
 	// 修改缓存键，确保包含插件名称

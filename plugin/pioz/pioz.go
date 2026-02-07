@@ -81,7 +81,7 @@ var (
 type DeepSearchResponse struct {
 	Code    int `json:"code"`
 	Results []struct {
-		ID         int    `json:"id"`
+		ID         string `json:"id"`          // 修复：改为 string 类型
 		Title      string `json:"title"`
 		CloudType  string `json:"cloud_type"`
 		Datetime   string `json:"datetime"`
@@ -178,6 +178,7 @@ func NewPiozPlugin() *PiozAsyncPlugin {
 
 // Search 同步搜索接口
 func (p *PiozAsyncPlugin) Search(keyword string, ext map[string]interface{}) ([]model.SearchResult, error) {
+	fmt.Printf("[%s] Search 被调用，keyword='%s'\n", p.Name(), keyword)
 	result, err := p.SearchWithResult(keyword, ext)
 	if err != nil {
 		return nil, err
@@ -187,11 +188,14 @@ func (p *PiozAsyncPlugin) Search(keyword string, ext map[string]interface{}) ([]
 
 // SearchWithResult 带结果统计的搜索接口
 func (p *PiozAsyncPlugin) SearchWithResult(keyword string, ext map[string]interface{}) (model.PluginSearchResult, error) {
+	fmt.Printf("[%s] SearchWithResult 被调用，keyword='%s'\n", p.Name(), keyword)
 	return p.AsyncSearchWithResult(keyword, p.searchImpl, p.MainCacheKey, ext)
 }
 
 // searchImpl 实现具体的搜索逻辑
 func (p *PiozAsyncPlugin) searchImpl(client *http.Client, keyword string, ext map[string]interface{}) ([]model.SearchResult, error) {
+	fmt.Printf("[%s] searchImpl 被调用，keyword='%s'\n", p.Name(), keyword)
+	
 	// 性能统计
 	start := time.Now()
 	atomic.AddInt64(&searchRequests, 1)
@@ -228,7 +232,8 @@ func (p *PiozAsyncPlugin) searchImpl(client *http.Client, keyword string, ext ma
 			results:   enhancedResults,
 			timestamp: time.Now(),
 		})
-		return plugin.FilterResultsByKeyword(enhancedResults, keyword), nil
+		// Pioz API 已经根据关键词过滤，不需要再次过滤
+		return enhancedResults, nil
 	}
 
 	// 策略2：普通搜索页面（备用）
@@ -240,7 +245,8 @@ func (p *PiozAsyncPlugin) searchImpl(client *http.Client, keyword string, ext ma
 			results:   enhancedResults,
 			timestamp: time.Now(),
 		})
-		return plugin.FilterResultsByKeyword(enhancedResults, keyword), nil
+		// 搜索页面已经根据关键词过滤，不需要再次过滤
+		return enhancedResults, nil
 	}
 
 	// 策略3：首页热搜榜匹配（最后手段）
@@ -256,15 +262,19 @@ func (p *PiozAsyncPlugin) searchImpl(client *http.Client, keyword string, ext ma
 		timestamp: time.Now(),
 	})
 	
-	return plugin.FilterResultsByKeyword(enhancedResults, keyword), nil
+	// 热搜榜已经根据关键词匹配，不需要再次过滤
+	return enhancedResults, nil
 }
 
 // performDeepSearch 执行深度搜索API
 func (p *PiozAsyncPlugin) performDeepSearch(client *http.Client, keyword string) ([]model.SearchResult, error) {
 	apiURL := fmt.Sprintf("%s/deep-search?kw=%s", APIBaseURL, url.QueryEscape(keyword))
 	
+	fmt.Printf("[%s] 调用API: %s\n", p.Name(), apiURL)
+	
 	req, err := http.NewRequest("GET", apiURL, nil)
 	if err != nil {
+		fmt.Printf("[%s] 创建请求失败: %v\n", p.Name(), err)
 		return nil, err
 	}
 	
@@ -274,13 +284,17 @@ func (p *PiozAsyncPlugin) performDeepSearch(client *http.Client, keyword string)
 	// 执行请求（带重试）
 	resp, err := p.doRequestWithRetry(client, req)
 	if err != nil {
+		fmt.Printf("[%s] 请求失败: %v\n", p.Name(), err)
 		return nil, err
 	}
 	defer resp.Body.Close()
 	
+	fmt.Printf("[%s] API响应状态码: %d\n", p.Name(), resp.StatusCode)
+	
 	// 检查反爬
 	if p.checkAntiCrawlerResponse(resp) {
 		atomic.AddInt64(&antiCrawlerBlocks, 1)
+		fmt.Printf("[%s] 触发反爬保护\n", p.Name())
 		return nil, fmt.Errorf("触发反爬保护")
 	}
 	
@@ -290,25 +304,35 @@ func (p *PiozAsyncPlugin) performDeepSearch(client *http.Client, keyword string)
 	
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
+		fmt.Printf("[%s] 读取响应失败: %v\n", p.Name(), err)
 		return nil, err
 	}
+	
+	fmt.Printf("[%s] 响应长度: %d 字节\n", p.Name(), len(body))
 	
 	// 检查响应是否包含反爬内容
 	if antiCrawlerRegex.Match(body) {
 		atomic.AddInt64(&antiCrawlerBlocks, 1)
+		fmt.Printf("[%s] 响应包含反爬内容\n", p.Name())
 		return nil, fmt.Errorf("响应包含反爬内容")
 	}
 	
 	var apiResp DeepSearchResponse
 	if err := json.Unmarshal(body, &apiResp); err != nil {
+		fmt.Printf("[%s] 解析JSON失败: %v\n", p.Name(), err)
+		fmt.Printf("[%s] 响应内容: %s\n", p.Name(), string(body[:min(500, len(body))]))
 		return nil, fmt.Errorf("解析API响应失败: %w", err)
 	}
 	
+	fmt.Printf("[%s] API返回: code=%d, total=%d, results=%d\n", p.Name(), apiResp.Code, apiResp.Total, len(apiResp.Results))
+	
 	if apiResp.Code != 0 {
+		fmt.Printf("[%s] API错误: %s\n", p.Name(), apiResp.Message)
 		return nil, fmt.Errorf("API错误: %s", apiResp.Message)
 	}
 	
 	if len(apiResp.Results) == 0 {
+		fmt.Printf("[%s] API返回0个结果\n", p.Name())
 		return nil, fmt.Errorf("未找到搜索结果")
 	}
 	
@@ -321,6 +345,13 @@ func (p *PiozAsyncPlugin) performDeepSearch(client *http.Client, keyword string)
 	
 	fmt.Printf("[%s] 深度搜索找到 %d 个结果\n", p.Name(), len(results))
 	return results, nil
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // performRegularSearch 执行普通搜索（HTML页面）
@@ -474,7 +505,7 @@ func (p *PiozAsyncPlugin) extractFromHotSearch(client *http.Client, keyword stri
 
 // convertAPIResultToSearchResult 将API结果转换为SearchResult
 func (p *PiozAsyncPlugin) convertAPIResultToSearchResult(item struct {
-	ID         int    `json:"id"`
+	ID         string `json:"id"`          // 修复：改为 string 类型
 	Title      string `json:"title"`
 	CloudType  string `json:"cloud_type"`
 	Datetime   string `json:"datetime"`
@@ -504,11 +535,11 @@ func (p *PiozAsyncPlugin) convertAPIResultToSearchResult(item struct {
 	// 将额外信息编码到UniqueID中: pluginName-id-viewURL
 	viewURL := item.ViewURL
 	if viewURL == "" {
-		viewURL = fmt.Sprintf("%s/detail/%d", SiteBaseURL, item.ID)
+		viewURL = fmt.Sprintf("%s/detail/%s", SiteBaseURL, item.ID)  // 修复：使用字符串格式
 	}
 	
 	return model.SearchResult{
-		UniqueID: fmt.Sprintf("%s-%d-%s", p.Name(), item.ID, url.QueryEscape(viewURL)),
+		UniqueID: fmt.Sprintf("%s-%s-%s", p.Name(), item.ID, url.QueryEscape(viewURL)),  // 修复：使用字符串格式
 		Title:    item.Title,
 		Content:  strings.Join(contentParts, "\n"),
 		Tags:     []string{},

@@ -29,8 +29,11 @@ func SearchHandler(c *gin.Context) {
 	// 根据请求方法不同处理参数
 	if c.Request.Method == http.MethodGet {
 		// GET方式：从URL参数获取
-		// 获取keyword，必填参数
-		keyword := c.Query("kw")
+		// 获取keyword，必填参数（支持kw和keyword两种参数名）
+		keyword := c.Query("keyword")
+		if keyword == "" {
+			keyword = c.Query("kw")
+		}
 		
 		// 处理channels参数，支持逗号分隔
 		channelsStr := c.Query("channels")

@@ -1397,11 +1397,8 @@ func (s *SearchService) searchPlugins(keyword string, plugins []string, forceRef
 			plugin.SetMainCacheKey(cacheKey)
 			plugin.SetCurrentKeyword(keyword)
 			
-			// 调用异步插件的AsyncSearch方法
-			results, err := plugin.AsyncSearch(keyword, func(client *http.Client, kw string, extParams map[string]interface{}) ([]model.SearchResult, error) {
-				// 使用插件的Search方法作为搜索函数
-				return plugin.Search(kw, extParams)
-			}, cacheKey, ext)
+			// 直接调用插件的 Search 方法（不要通过 AsyncSearch 包装）
+			results, err := plugin.Search(keyword, ext)
 			
 			if err == nil && len(results) > 0 {
 				resultsChan <- results
@@ -1435,11 +1432,8 @@ func (s *SearchService) searchPlugins(keyword string, plugins []string, forceRef
 			plugin.SetMainCacheKey(cacheKey)
 			plugin.SetCurrentKeyword(keyword)
 			
-			// 调用异步插件的AsyncSearch方法
-			results, err := plugin.AsyncSearch(keyword, func(client *http.Client, kw string, extParams map[string]interface{}) ([]model.SearchResult, error) {
-				// 使用插件的Search方法作为搜索函数
-				return plugin.Search(kw, extParams)
-			}, cacheKey, ext)
+			// 直接调用插件的 Search 方法（不要通过 AsyncSearch 包装）
+			results, err := plugin.Search(keyword, ext)
 			
 			if err == nil && len(results) > 0 {
 				resultsChan <- results
