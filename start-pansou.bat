@@ -1,64 +1,64 @@
 @echo off
 chcp 65001 >nul
-title PanSou 网盘搜索服务
+title PanSou Service Startup
 
 echo ================================
-echo    PanSou 网盘搜索服务
+echo    PanSou Service Startup
 echo ================================
 echo.
 
-REM 检查是否存在 pansou.exe
+REM Check if pansou.exe exists
 if not exist "pansou.exe" (
-    echo ? 未找到 pansou.exe 文件！
+    echo [X] pansou.exe not found
     echo.
-    echo 请先构建项目：
+    echo Please build the project first:
     echo   go build -o pansou.exe .
     echo.
-    echo 或从 GitHub Releases 下载预编译版本
+    echo Or download from GitHub Releases
     pause
     exit /b 1
 )
 
-REM 设置环境变量
-set PORT=8888
+REM Environment configuration
+set PORT=8889
 set CACHE_ENABLED=true
 set CACHE_PATH=.\cache
 set ASYNC_PLUGIN_ENABLED=true
-set ENABLED_PLUGINS=labi,zhizhen,shandian,duoduo,muou,wanou,hunhepan,jikepan,pansearch,panta,qupansou
+set ENABLED_PLUGINS=pioz,labi,zhizhen,shandian,duoduo,muou,wanou,hunhepan,jikepan,pansearch,panta,qupansou
 set TZ=Asia/Shanghai
 set ASYNC_RESPONSE_TIMEOUT=4
 set ASYNC_MAX_BACKGROUND_WORKERS=10
 set ASYNC_MAX_BACKGROUND_TASKS=50
 
-REM 可选：启用认证（取消注释下面两行）
+REM Optional: Authentication (uncomment to enable)
 REM set AUTH_ENABLED=true
 REM set AUTH_USERS=admin:your_password
 
-echo 配置信息:
-echo 端口: %PORT%
-echo 缓存: %CACHE_ENABLED%
-echo 缓存路径: %CACHE_PATH%
-echo 插件系统: %ASYNC_PLUGIN_ENABLED%
-echo 启用插件: %ENABLED_PLUGINS%
-echo 时区: %TZ%
+echo Configuration:
+echo Port: %PORT%
+echo Cache: %CACHE_ENABLED%
+echo Cache Path: %CACHE_PATH%
+echo Async System: %ASYNC_PLUGIN_ENABLED%
+echo Enabled Plugins: %ENABLED_PLUGINS%
+echo Timezone: %TZ%
 echo.
 
-REM 创建缓存目录
+REM Create cache directory
 if not exist "%CACHE_PATH%" (
     mkdir "%CACHE_PATH%"
-    echo ? 已创建缓存目录: %CACHE_PATH%
+    echo [OK] Created cache directory: %CACHE_PATH%
 )
 
-echo ?? 启动服务器...
-echo 访问地址: http://localhost:%PORT%
-echo 健康检查: http://localhost:%PORT%/api/health
+echo Starting service...
+echo Access URL: http://localhost:%PORT%
+echo Health check: http://localhost:%PORT%/api/health
 echo.
-echo 按 Ctrl+C 停止服务
+echo Press Ctrl+C to stop service
 echo.
 
-REM 启动服务
+REM Start service
 pansou.exe
 
 echo.
-echo 服务器已停止
+echo Service stopped
 pause

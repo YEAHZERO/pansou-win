@@ -450,19 +450,16 @@ func (p *PiozAsyncPlugin) extractFromHotSearch(client *http.Client, keyword stri
 			return
 		}
 		
+		detailURL := fmt.Sprintf("%s/detail/%s", SiteBaseURL, detailID)
 		result := model.SearchResult{
-			UniqueID: fmt.Sprintf("%s-%s", p.Name(), detailID),
+			UniqueID: fmt.Sprintf("%s-%s-%s", p.Name(), detailID, url.QueryEscape(detailURL)),
 			Title:    title,
-			Content:  "来自热搜榜的推荐资源",
+			Content:  "来自热搜榜的推荐资源 | 来源: hot_search",
 			Tags:     []string{},
 			Links:    []model.Link{},
 			Images:   []string{},
 			Channel:  "",
 			Datetime: time.Time{},
-			Extra: map[string]interface{}{
-				"detail_url": fmt.Sprintf("%s/detail/%s", SiteBaseURL, detailID),
-				"source":     "hot_search",
-			},
 		}
 		results = append(results, result)
 	})
@@ -504,8 +501,14 @@ func (p *PiozAsyncPlugin) convertAPIResultToSearchResult(item struct {
 		contentParts = append(contentParts, "描述: "+item.Desc)
 	}
 	
+	// 将额外信息编码到UniqueID中: pluginName-id-viewURL
+	viewURL := item.ViewURL
+	if viewURL == "" {
+		viewURL = fmt.Sprintf("%s/detail/%d", SiteBaseURL, item.ID)
+	}
+	
 	return model.SearchResult{
-		UniqueID: fmt.Sprintf("%s-%d", p.Name(), item.ID),
+		UniqueID: fmt.Sprintf("%s-%d-%s", p.Name(), item.ID, url.QueryEscape(viewURL)),
 		Title:    item.Title,
 		Content:  strings.Join(contentParts, "\n"),
 		Tags:     []string{},
@@ -513,13 +516,6 @@ func (p *PiozAsyncPlugin) convertAPIResultToSearchResult(item struct {
 		Images:   []string{},
 		Channel:  "",
 		Datetime: time.Time{},
-		Extra: map[string]interface{}{
-			"id":          item.ID,
-			"cloud_type":  item.CloudType,
-			"cloud_name":  cloudTypeName,
-			"create_time": item.CreateTime,
-			"view_url":    item.ViewURL,
-		},
 	}
 }
 
@@ -622,14 +618,14 @@ func (p *PiozAsyncPlugin) parseSearchItem(s *goquery.Selection, keyword string, 
 	}
 
 	result.Title = title
-	result.Content = content
+	if content != "" {
+		result.Content = content + " | 来源: html_search"
+	} else {
+		result.Content = "来源: html_search"
+	}
 	result.Datetime = time.Time{}
 	result.Links = []model.Link{}
 	result.Channel = ""
-	result.Extra = map[string]interface{}{
-		"detail_url": detailURL,
-		"source":     "html_search",
-	}
 
 	return result
 }
@@ -662,17 +658,12 @@ func (p *PiozAsyncPlugin) parseDetailLink(a *goquery.Selection, index int) model
 		detailURL = SiteBaseURL + href
 	}
 	
-	result.UniqueID = fmt.Sprintf("%s-%s", p.Name(), detailID)
+	result.UniqueID = fmt.Sprintf("%s-%s-%s", p.Name(), detailID, url.QueryEscape(detailURL))
 	result.Title = title
-	result.Content = "来自搜索结果页"
+	result.Content = "来自搜索结果页 | 来源: html_search"
 	result.Links = []model.Link{}
 	result.Channel = ""
 	result.Datetime = time.Time{}
-	result.Extra = map[string]interface{}{
-		"detail_url": detailURL,
-		"id":         detailID,
-		"source":     "html_search",
-	}
 	
 	return result
 }
@@ -756,22 +747,11 @@ func (p *PiozAsyncPlugin) fetchResourceInfo(client *http.Client, result model.Se
 
 // tryTransferAPI 尝试transfer API
 func (p *PiozAsyncPlugin) tryTransferAPI(client *http.Client, result model.SearchResult) []model.Link {
-	// 从Extra中获取ID
+	// 从UniqueID提取ID: format is "pluginName-id-encodedURL"
 	var resourceID string
-	if extra, ok := result.Extra.(map[string]interface{}); ok {
-		if id, ok := extra["id"].(int); ok && id > 0 {
-			resourceID = fmt.Sprintf("%d", id)
-		} else if idStr, ok := extra["id"].(string); ok && idStr != "" {
-			resourceID = idStr
-		}
-	}
-	
-	if resourceID == "" {
-		// 从UniqueID提取
-		parts := strings.Split(result.UniqueID, "-")
-		if len(parts) > 1 {
-			resourceID = parts[1]
-		}
+	parts := strings.Split(result.UniqueID, "-")
+	if len(parts) >= 2 {
+		resourceID = parts[1]
 	}
 	
 	if resourceID == "" {
@@ -839,28 +819,32 @@ func (p *PiozAsyncPlugin) tryTransferAPI(client *http.Client, result model.Searc
 
 // parseResourceDetailPage 解析资源详情页
 func (p *PiozAsyncPlugin) parseResourceDetailPage(client *http.Client, result model.SearchResult) []model.Link {
-	// 获取详情页URL
+	// 从UniqueID提取详情页URL: format is "pluginName-id-encodedURL" or "pluginName-detail-encodedURL"
 	detailURL := ""
-	if extra, ok := result.Extra.(map[string]interface{}); ok {
-		if url, ok := extra["detail_url"].(string); ok && url != "" {
-			detailURL = url
-		} else if viewURL, ok := extra["view_url"].(string); ok && viewURL != "" {
-			detailURL = viewURL
-		}
-	}
 	
-	if detailURL == "" {
-		// 从UniqueID构建
-		if strings.Contains(result.UniqueID, "-detail-") {
-			parts := strings.SplitN(result.UniqueID, "-detail-", 2)
-			if len(parts) == 2 {
-				detailURL, _ = url.QueryUnescape(parts[1])
+	if strings.Contains(result.UniqueID, "-detail-") {
+		// 格式: pluginName-detail-encodedURL
+		parts := strings.SplitN(result.UniqueID, "-detail-", 2)
+		if len(parts) == 2 {
+			var err error
+			detailURL, err = url.QueryUnescape(parts[1])
+			if err != nil {
+				detailURL = parts[1]
 			}
-		} else {
-			parts := strings.Split(result.UniqueID, "-")
-			if len(parts) > 1 {
-				detailURL = fmt.Sprintf("%s/detail/%s", SiteBaseURL, parts[1])
+		}
+	} else {
+		// 格式: pluginName-id-encodedURL
+		parts := strings.SplitN(result.UniqueID, "-", 3)
+		if len(parts) >= 3 {
+			// 第三部分是编码的URL
+			var err error
+			detailURL, err = url.QueryUnescape(parts[2])
+			if err != nil {
+				detailURL = parts[2]
 			}
+		} else if len(parts) >= 2 {
+			// 只有ID，构建URL
+			detailURL = fmt.Sprintf("%s/detail/%s", SiteBaseURL, parts[1])
 		}
 	}
 	

@@ -1,33 +1,33 @@
 @echo off
 chcp 65001 >nul
-title PanSou 自动部署脚本
+title PanSou Auto Deploy Script
 
 echo ================================
-echo   PanSou 自动部署脚本
+echo   PanSou Auto Deploy Script
 echo ================================
 echo.
 
-REM 配置路径
+REM Configuration paths
 set SOURCE_DIR=C:\Projects\PT\pansou-main
 set DEPLOY_DIR=C:\Users\Administrator\pansou
 
-echo 配置信息:
-echo   源目录: %SOURCE_DIR%
-echo   部署目录: %DEPLOY_DIR%
+echo Configuration:
+echo   Source Dir: %SOURCE_DIR%
+echo   Deploy Dir: %DEPLOY_DIR%
 echo.
 
-REM 步骤 1: 检查源目录
-echo [1/6] 检查源目录...
+REM Step 1: Check source directory
+echo [1/6] Checking source directory...
 if not exist "%SOURCE_DIR%" (
-    echo ❌ 源目录不存在: %SOURCE_DIR%
+    echo [X] Source directory not found: %SOURCE_DIR%
     pause
     exit /b 1
 )
 
 if not exist "%SOURCE_DIR%\pansou.exe" (
-    echo ❌ 源目录中未找到 pansou.exe
+    echo [X] pansou.exe not found in source directory
     echo.
-    echo 请先编译项目:
+    echo Please build the project first:
     echo   cd %SOURCE_DIR%
     echo   go build -o pansou.exe
     echo.
@@ -35,150 +35,150 @@ if not exist "%SOURCE_DIR%\pansou.exe" (
     exit /b 1
 )
 
-echo ✅ 源文件检查通过
+echo [OK] Source files check passed
 echo.
 
-REM 步骤 2: 检查部署目录
-echo [2/6] 检查部署目录...
+REM Step 2: Check deploy directory
+echo [2/6] Checking deploy directory...
 if not exist "%DEPLOY_DIR%" (
-    echo ⚠️  部署目录不存在，正在创建...
+    echo [!] Deploy directory not found, creating...
     mkdir "%DEPLOY_DIR%"
     if %errorlevel% neq 0 (
-        echo ❌ 创建部署目录失败，请检查权限
+        echo [X] Failed to create deploy directory, check permissions
         pause
         exit /b 1
     )
-    echo ✅ 已创建部署目录
+    echo [OK] Created deploy directory
 )
-echo ✅ 部署目录检查通过
+echo [OK] Deploy directory check passed
 echo.
 
-REM 步骤 3: 停止现有服务
-echo [3/6] 停止现有服务...
+REM Step 3: Stop existing service
+echo [3/6] Stopping existing service...
 tasklist | findstr /I "pansou.exe" >nul
 if %errorlevel% equ 0 (
-    echo ⚠️  检测到运行中的服务，正在停止...
+    echo [!] Running service detected, stopping...
     taskkill /F /IM pansou.exe 2>nul
     if %errorlevel% equ 0 (
-        echo ✅ 已停止现有服务
+        echo [OK] Stopped existing service
         timeout /t 2 /nobreak >nul
     ) else (
-        echo ⚠️  无法停止服务，请手动关闭后重试
+        echo [!] Cannot stop service, please close manually and retry
         pause
         exit /b 1
     )
 ) else (
-    echo ℹ️  没有运行中的服务
+    echo [i] No running service found
 )
 echo.
 
-REM 步骤 4: 备份现有文件
-echo [4/6] 备份现有文件...
+REM Step 4: Backup existing files
+echo [4/6] Backing up existing files...
 if exist "%DEPLOY_DIR%\pansou.exe" (
     set BACKUP_NAME=pansou.exe.backup_%date:~0,4%%date:~5,2%%date:~8,2%_%time:~0,2%%time:~3,2%%time:~6,2%
     set BACKUP_NAME=%BACKUP_NAME: =0%
     copy /Y "%DEPLOY_DIR%\pansou.exe" "%DEPLOY_DIR%\%BACKUP_NAME%" >nul
     if %errorlevel% equ 0 (
-        echo ✅ 已备份现有文件: %BACKUP_NAME%
+        echo [OK] Backed up existing file: %BACKUP_NAME%
     ) else (
-        echo ⚠️  备份失败，但继续部署
+        echo [!] Backup failed, but continuing deployment
     )
 ) else (
-    echo ℹ️  没有需要备份的文件（首次部署）
+    echo [i] No files to backup (first deployment)
 )
 echo.
 
-REM 步骤 5: 复制新文件
-echo [5/6] 复制新文件...
+REM Step 5: Copy new files
+echo [5/6] Copying new files...
 
-echo   - 复制可执行文件...
+echo   - Copying executable...
 copy /Y "%SOURCE_DIR%\pansou.exe" "%DEPLOY_DIR%\pansou.exe" >nul
 if %errorlevel% neq 0 (
-    echo ❌ 复制 pansou.exe 失败
+    echo [X] Failed to copy pansou.exe
     pause
     exit /b 1
 )
 
-echo   - 复制启动脚本...
+echo   - Copying start script...
 copy /Y "%SOURCE_DIR%\start.bat" "%DEPLOY_DIR%\start.bat" >nul
 if %errorlevel% neq 0 (
-    echo ❌ 复制 start.bat 失败
+    echo [X] Failed to copy start.bat
     pause
     exit /b 1
 )
 
-echo   - 复制插件目录...
+echo   - Copying plugin directory...
 if exist "%SOURCE_DIR%\plugin" (
     xcopy /E /I /Y /Q "%SOURCE_DIR%\plugin" "%DEPLOY_DIR%\plugin" >nul
     if %errorlevel% neq 0 (
-        echo ⚠️  复制插件目录失败，但继续部署
+        echo [!] Failed to copy plugin directory, but continuing
     )
 ) else (
-    echo ⚠️  源目录中没有 plugin 文件夹
+    echo [!] No plugin folder in source directory
 )
 
-echo   - 复制文档目录...
+echo   - Copying docs directory...
 if exist "%SOURCE_DIR%\docs" (
     xcopy /E /I /Y /Q "%SOURCE_DIR%\docs" "%DEPLOY_DIR%\docs" >nul
     if %errorlevel% neq 0 (
-        echo ⚠️  复制文档目录失败，但继续部署
+        echo [!] Failed to copy docs directory, but continuing
     )
 )
 
-echo   - 复制其他必要文件...
+echo   - Copying other necessary files...
 if exist "%SOURCE_DIR%\README.md" (
     copy /Y "%SOURCE_DIR%\README.md" "%DEPLOY_DIR%\README.md" >nul 2>&1
 )
 
-echo ✅ 文件复制完成
+echo [OK] File copy completed
 echo.
 
-REM 步骤 6: 验证部署
-echo [6/6] 验证部署...
+REM Step 6: Verify deployment
+echo [6/6] Verifying deployment...
 if not exist "%DEPLOY_DIR%\pansou.exe" (
-    echo ❌ 部署失败: 未找到 pansou.exe
+    echo [X] Deployment failed: pansou.exe not found
     pause
     exit /b 1
 )
 
 if not exist "%DEPLOY_DIR%\start.bat" (
-    echo ❌ 部署失败: 未找到 start.bat
+    echo [X] Deployment failed: start.bat not found
     pause
     exit /b 1
 )
 
-echo ✅ 部署验证通过
+echo [OK] Deployment verification passed
 echo.
 
-REM 显示部署摘要
+REM Display deployment summary
 echo ================================
-echo   部署成功！
+echo   Deployment Successful!
 echo ================================
 echo.
-echo 部署信息:
-echo   部署目录: %DEPLOY_DIR%
-echo   可执行文件: pansou.exe
-echo   启动脚本: start.bat
-echo   服务端口: 8889
-echo   pioz 插件: 已启用（优先级最高）
+echo Deployment Info:
+echo   Deploy Dir: %DEPLOY_DIR%
+echo   Executable: pansou.exe
+echo   Start Script: start.bat
+echo   Service Port: 8889
+echo   pioz Plugin: Enabled (Highest Priority)
 echo.
-echo 配置详情:
-echo   - 端口: 8889
-echo   - 认证: 启用（用户名: admin, 密码: 123456）
-echo   - 缓存: 启用
-echo   - 插件顺序: pioz 优先
+echo Configuration Details:
+echo   - Port: 8889
+echo   - Auth: Enabled (Username: admin, Password: 123456)
+echo   - Cache: Enabled
+echo   - Plugin Order: pioz first
 echo.
 
-REM 询问是否启动服务
-echo 是否立即启动服务？
-echo   [Y] 是，启动服务
-echo   [N] 否，稍后手动启动
+REM Ask if start service now
+echo Start service now?
+echo   [Y] Yes, start service
+echo   [N] No, start manually later
 echo.
-choice /C YN /N /M "请选择 (Y/N): "
+choice /C YN /N /M "Please choose (Y/N): "
 
 if errorlevel 2 (
     echo.
-    echo ℹ️  稍后可以运行以下命令启动服务:
+    echo [i] You can start service later with:
     echo   cd %DEPLOY_DIR%
     echo   start.bat
     echo.
@@ -188,15 +188,15 @@ if errorlevel 2 (
 
 if errorlevel 1 (
     echo.
-    echo 🚀 正在启动服务...
+    echo Starting service...
     echo.
     cd /d "%DEPLOY_DIR%"
     start "" "%DEPLOY_DIR%\start.bat"
     echo.
-    echo ✅ 服务已启动
+    echo [OK] Service started
     echo.
-    echo 访问地址: http://localhost:8889
-    echo 健康检查: http://localhost:8889/api/health
+    echo Access URL: http://localhost:8889
+    echo Health Check: http://localhost:8889/api/health
     echo.
     timeout /t 3 /nobreak >nul
     exit /b 0

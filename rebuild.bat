@@ -1,27 +1,30 @@
 @echo off
+chcp 65001 >nul
+title Rebuild PanSou
+
 echo ========================================
-echo 重新编译 PanSou
+echo Rebuild PanSou
 echo ========================================
 echo.
 
-echo 正在编译...
+echo Building...
 go build -o pansou.exe main.go
 
 if %ERRORLEVEL% EQU 0 (
     echo.
     echo ========================================
-    echo 编译成功！
+    echo Build Successful!
     echo ========================================
     echo.
-    echo 可执行文件: pansou.exe
+    echo Executable: pansou.exe
     echo.
-    echo 运行命令: pansou.exe
-    echo 或使用: start-pansou.bat
+    echo Run command: pansou.exe
+    echo Or use: start-pansou.bat
     echo.
 ) else (
     echo.
     echo ========================================
-    echo 编译失败！请检查错误信息
+    echo Build Failed! Please check error messages
     echo ========================================
     echo.
 )

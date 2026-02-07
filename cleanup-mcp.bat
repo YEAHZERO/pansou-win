@@ -1,129 +1,129 @@
 @echo off
 chcp 65001 >nul
-title PanSou MCP 文件清理工具
+title PanSou MCP File Cleanup Tool
 
 echo ================================
-echo    PanSou MCP 文件清理工具
+echo    PanSou MCP File Cleanup Tool
 echo ================================
 echo.
 
-echo 🔍 此工具将删除以下 MCP 相关文件和目录:
+echo This tool will delete the following MCP related files and directories:
 echo.
-echo 📁 目录:
-echo   - typescript\                    (整个 TypeScript MCP 服务目录)
+echo Directories:
+echo   - typescript\                    (Entire TypeScript MCP service directory)
 echo.
-echo 📄 配置文件:
-echo   - mcp-config.json               (MCP 服务配置)
-echo   - mcp-config-remote.json        (MCP 远程服务配置)
-echo   - package.json                  (根目录 Node.js 配置)
-echo   - package-lock.json             (根目录 Node.js 锁定文件)
+echo Configuration files:
+echo   - mcp-config.json               (MCP service config)
+echo   - mcp-config-remote.json        (MCP remote service config)
+echo   - package.json                  (Root Node.js config)
+echo   - package-lock.json             (Root Node.js lock file)
 echo.
-echo 📜 脚本文件:
-echo   - setup-remote.js               (MCP 远程服务配置脚本)
-echo   - test-remote-connection.js     (MCP 远程连接测试脚本)
+echo Script files:
+echo   - setup-remote.js               (MCP remote service setup script)
+echo   - test-remote-connection.js     (MCP remote connection test script)
 echo.
-echo 📚 文档文件:
-echo   - docs\MCP-SERVICE.md           (MCP 服务文档)
-echo   - docs\官方服务连接指南.md       (MCP 连接指南)
+echo Documentation files:
+echo   - docs\MCP-SERVICE.md           (MCP service documentation)
+echo   - docs\官方服务连接指南.md       (MCP connection guide)
 echo.
-echo ⚠️  警告: 此操作不可逆，请确保你不需要 MCP 功能！
+echo Warning: This operation is irreversible! Make sure you don't need MCP functionality!
 echo.
-echo ✅ 保留的核心文件:
-echo   - Go 后端服务 (main.go, api\, service\, plugin\ 等)
-echo   - 配置和工具 (config\, util\, model\)
-echo   - 核心文档 (README.md, 系统设计文档等)
+echo Files to keep:
+echo   - Go backend service (main.go, api\, service\, plugin\ etc)
+echo   - Configuration and tools (config\, util\, model\)
+echo   - Core documentation (README.md, system design docs etc)
 echo.
 
-set /p confirm="确认删除 MCP 相关文件? (y/N): "
+set /p confirm="Confirm deletion of MCP related files? (y/N): "
 if /i not "%confirm%"=="y" (
-    echo 操作已取消
+    echo Operation cancelled
     pause
     exit /b 0
 )
 
 echo.
-echo 🗑️  开始清理 MCP 相关文件...
+echo Starting MCP file cleanup...
 echo.
 
-REM 删除 TypeScript 目录
+REM Delete TypeScript directory
 if exist "typescript" (
-    echo 删除目录: typescript\
+    echo Deleting directory: typescript\
     rmdir /s /q "typescript"
     if %errorlevel% equ 0 (
-        echo ✅ 已删除 typescript\ 目录
+        echo [OK] Deleted typescript\ directory
     ) else (
-        echo ❌ 删除 typescript\ 目录失败
+        echo [X] Failed to delete typescript\ directory
     )
 ) else (
-    echo ⚠️  typescript\ 目录不存在
+    echo [!] typescript\ directory does not exist
 )
 
-REM 删除 MCP 配置文件
+REM Delete MCP configuration files
 set "files_to_delete=mcp-config.json mcp-config-remote.json package.json package-lock.json setup-remote.js test-remote-connection.js"
 
 for %%f in (%files_to_delete%) do (
     if exist "%%f" (
-        echo 删除文件: %%f
+        echo Deleting file: %%f
         del /q "%%f"
         if %errorlevel% equ 0 (
-            echo ✅ 已删除 %%f
+            echo [OK] Deleted %%f
         ) else (
-            echo ❌ 删除 %%f 失败
+            echo [X] Failed to delete %%f
         )
     ) else (
-        echo ⚠️  %%f 不存在
+        echo [!] %%f does not exist
     )
 )
 
-REM 删除 MCP 相关文档
+REM Delete MCP related documentation
 if exist "docs\MCP-SERVICE.md" (
-    echo 删除文件: docs\MCP-SERVICE.md
+    echo Deleting file: docs\MCP-SERVICE.md
     del /q "docs\MCP-SERVICE.md"
     if %errorlevel% equ 0 (
-        echo ✅ 已删除 docs\MCP-SERVICE.md
+        echo [OK] Deleted docs\MCP-SERVICE.md
     ) else (
-        echo ❌ 删除 docs\MCP-SERVICE.md 失败
+        echo [X] Failed to delete docs\MCP-SERVICE.md
     )
 ) else (
-    echo ⚠️  docs\MCP-SERVICE.md 不存在
+    echo [!] docs\MCP-SERVICE.md does not exist
 )
 
 if exist "docs\官方服务连接指南.md" (
-    echo 删除文件: docs\官方服务连接指南.md
+    echo Deleting file: docs\官方服务连接指南.md
     del /q "docs\官方服务连接指南.md"
     if %errorlevel% equ 0 (
-        echo ✅ 已删除 docs\官方服务连接指南.md
+        echo [OK] Deleted docs\官方服务连接指南.md
     ) else (
-        echo ❌ 删除 docs\官方服务连接指南.md 失败
+        echo [X] Failed to delete docs\官方服务连接指南.md
     )
 ) else (
-    echo ⚠️  docs\官方服务连接指南.md 不存在
+    echo [!] docs\官方服务连接指南.md does not exist
 )
 
 echo.
-echo 🎉 MCP 文件清理完成！
+echo MCP file cleanup completed!
 echo.
-echo 📊 清理结果:
-echo   - 删除了 TypeScript MCP 服务目录
-echo   - 删除了 MCP 配置文件
-echo   - 删除了 MCP 相关脚本
-echo   - 删除了 MCP 相关文档
+echo Cleanup results:
+echo   - Deleted TypeScript MCP service directory
+echo   - Deleted MCP configuration files
+echo   - Deleted MCP related scripts
+echo   - Deleted MCP related documentation
 echo.
-echo ✅ 保留的核心功能:
-echo   - Go 后端服务 (完整保留)
-echo   - 搜索插件系统 (完整保留)
-echo   - 缓存系统 (完整保留)
-echo   - 认证系统 (完整保留)
-echo   - API 接口 (完整保留)
+echo Core functionality preserved:
+echo   - Go backend service (fully preserved)
+echo   - Search plugin system (fully preserved)
+echo   - Cache system (fully preserved)
+echo   - Authentication system (fully preserved)
+echo   - API interfaces (fully preserved)
 echo.
-echo 🚀 下一步操作:
-echo   1. 编译 Go 项目: go build -o pansou.exe .
-echo   2. 启动服务: .\pansou.exe
-echo   3. 或使用启动脚本: start-pansou.bat
+echo Next steps:
+echo   1. Build Go project: go build -o pansou.exe .
+echo   2. Start service: .\pansou.exe
+echo   3. Or use start script: start-pansou.bat
 echo.
-echo 📖 相关文档:
+echo Related documentation:
 echo   - docs\纯API使用指南.md
 echo   - docs\Windows源码安装指南.md
-echo   - api-client-examples\ (客户端示例)
+echo   - api-client-examples\ (Client examples)
 echo.
 pause

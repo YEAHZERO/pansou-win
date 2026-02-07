@@ -1,58 +1,58 @@
 @echo off
 chcp 65001 >nul
-title PanSou Windows 安装向导
+title PanSou Windows Installation Wizard
 
 echo ================================
-echo    PanSou Windows 安装向导
+echo    PanSou Windows Installation
 echo ================================
 echo.
 
-REM 检查管理员权限
+REM Check admin privileges
 net session >nul 2>&1
 if %errorlevel% neq 0 (
-    echo ⚠️  建议以管理员身份运行此脚本
+    echo Warning: Recommend running as administrator
     echo.
 )
 
-echo 🔍 检查系统环境...
+echo Checking system environment...
 echo.
 
-REM 检查 Go 环境
-echo 检查 Go 环境:
+REM Check Go environment
+echo Checking Go:
 go version >nul 2>&1
 if %errorlevel% equ 0 (
-    echo ✅ Go 已安装
+    echo [OK] Go installed
     go version
 ) else (
-    echo ❌ Go 未安装
-    echo 请访问 https://golang.org/dl/ 下载安装 Go
+    echo [X] Go not installed
+    echo Please visit https://golang.org/dl/ to download Go
     echo.
 )
 
-REM 检查 Git 环境
+REM Check Git environment
 echo.
-echo 检查 Git 环境:
+echo Checking Git:
 git --version >nul 2>&1
 if %errorlevel% equ 0 (
-    echo ✅ Git 已安装
+    echo [OK] Git installed
     git --version
 ) else (
-    echo ❌ Git 未安装
-    echo 请访问 https://git-scm.com/ 下载安装 Git
+    echo [X] Git not installed
+    echo Please visit https://git-scm.com/ to download Git
     echo.
 )
 
 echo.
 echo ================================
-echo    选择安装方式
+echo    Choose Installation Method
 echo ================================
 echo.
-echo 1. 源码编译安装 (推荐，需要 Go)
-echo 2. 预编译二进制安装
-echo 3. 退出
+echo 1. Build from source (Recommended, requires Go)
+echo 2. Use pre-compiled binary
+echo 3. Exit
 echo.
 
-set /p choice="请选择安装方式 (1-3): "
+set /p choice="Please choose (1-3): "
 
 if "%choice%"=="1" goto source_install
 if "%choice%"=="2" goto binary_install
@@ -61,98 +61,98 @@ goto invalid_choice
 
 :source_install
 echo.
-echo 🔨 源码编译安装
+echo Building from source...
 echo ================================
 echo.
 
 go version >nul 2>&1
 if %errorlevel% neq 0 (
-    echo ❌ Go 未安装，无法使用此方式
+    echo [X] Go not installed, cannot use this method
     goto end
 )
 
 if not exist "go.mod" (
-    echo ❌ 未找到 go.mod 文件
-    echo 请确保在 PanSou 项目根目录中运行此脚本
+    echo [X] go.mod not found
+    echo Please run this script in PanSou project root directory
     goto end
 )
 
-echo 📥 下载依赖...
+echo Downloading dependencies...
 go mod download
 
 if %errorlevel% neq 0 (
-    echo ❌ 依赖下载失败，尝试设置代理...
+    echo [X] Failed to download dependencies, trying with proxy...
     go env -w GOPROXY=https://goproxy.cn,direct
     go mod download
 )
 
-echo 🔨 编译项目...
+echo Building project...
 go build -ldflags="-s -w" -o pansou.exe .
 
 if %errorlevel% equ 0 (
-    echo ✅ 编译成功
+    echo [OK] Build successful
     echo.
-    echo 📁 生成的文件:
-    echo   - pansou.exe (主程序)
-    echo   - start-pansou.bat (启动脚本)
-    echo   - test-pansou.bat (测试脚本)
+    echo Generated files:
+    echo   - pansou.exe (main program)
+    echo   - start-pansou.bat (start script)
+    echo   - test-pansou.bat (test script)
     echo.
-    echo 🚀 现在可以运行以下命令启动服务:
+    echo You can now start the service with:
     echo   start-pansou.bat
     echo.
-    echo 或者手动启动:
+    echo Or manually:
     echo   pansou.exe
     echo.
-    echo 📖 更多信息请查看: docs\Windows安装部署指南.md
+    echo More info: docs\Windows安装部署指南.md
 ) else (
-    echo ❌ 编译失败
+    echo [X] Build failed
     echo.
-    echo 可能的解决方案:
-    echo 1. 检查 Go 版本是否 >= 1.21
-    echo 2. 检查网络连接
-    echo 3. 尝试清理模块缓存: go clean -modcache
+    echo Possible solutions:
+    echo 1. Check Go version ^>= 1.21
+    echo 2. Check network connection
+    echo 3. Try cleaning module cache: go clean -modcache
 )
 goto end
 
 :binary_install
 echo.
-echo 📦 预编译二进制安装
+echo Pre-compiled binary installation
 echo ================================
 echo.
-echo 请手动执行以下步骤:
+echo Please follow these steps manually:
 echo.
-echo 1. 访问 GitHub Releases 页面:
+echo 1. Visit GitHub Releases page:
 echo    https://github.com/fish2018/pansou/releases
 echo.
-echo 2. 下载最新的 Windows 版本:
+echo 2. Download latest Windows version:
 echo    pansou-windows-amd64.exe
 echo.
-echo 3. 将文件重命名为 pansou.exe
+echo 3. Rename file to pansou.exe
 echo.
-echo 4. 放置在当前目录
+echo 4. Place in current directory
 echo.
-echo 5. 运行启动脚本:
+echo 5. Run start script:
 echo    start-pansou.bat
 echo.
-echo 📖 详细说明请查看: docs\Windows安装部署指南.md
+echo Details: docs\Windows安装部署指南.md
 echo.
 goto end
 
 :invalid_choice
-echo ❌ 无效选择，请重新运行脚本
+echo [X] Invalid choice, please run script again
 goto end
 
 :end
 echo.
-echo 📚 相关文档:
-echo   - docs\Windows安装部署指南.md (详细安装指南)
-echo   - docs\纯API使用指南.md (API 使用说明)
-echo   - api-client-examples\ (客户端示例)
+echo Related documentation:
+echo   - docs\Windows安装部署指南.md (Installation guide)
+echo   - docs\纯API使用指南.md (API usage)
+echo   - api-client-examples\ (Client examples)
 echo.
-echo 🎯 安装完成后可以:
-echo   1. 访问 http://localhost:8888/api/health 检查服务
-echo   2. 使用客户端工具进行搜索
-echo   3. 查看相关文档了解更多功能
+echo After installation you can:
+echo   1. Visit http://localhost:8889/api/health to check service
+echo   2. Use client tools for searching
+echo   3. Read documentation for more features
 echo.
-echo 安装向导结束
+echo Installation wizard finished
 pause

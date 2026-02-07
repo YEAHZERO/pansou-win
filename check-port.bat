@@ -1,56 +1,56 @@
 @echo off
 chcp 65001 >nul
-title 端口检查和清理工具
+title Port Check and Cleanup Tool
 
 echo ================================
-echo    端口检查和清理工具
+echo    Port Check and Cleanup Tool
 echo ================================
 echo.
 
-set TARGET_PORT=8888
+set TARGET_PORT=8889
 
-echo 🔍 检查端口 %TARGET_PORT% 的使用情况...
+echo Checking port %TARGET_PORT% usage...
 echo.
 
-REM 检查端口是否被占用
+REM Check if port is occupied
 netstat -ano | findstr ":%TARGET_PORT% " >nul
 if %errorlevel% neq 0 (
-    echo ✅ 端口 %TARGET_PORT% 当前可用
+    echo [OK] Port %TARGET_PORT% is currently available
     echo.
     pause
     exit /b 0
 )
 
-echo ❌ 端口 %TARGET_PORT% 已被占用
+echo [X] Port %TARGET_PORT% is occupied
 echo.
-echo 占用详情:
+echo Occupation details:
 echo ================================
 
-REM 显示占用端口的详细信息
+REM Display detailed information about port occupation
 for /f "tokens=1,2,5" %%a in ('netstat -ano ^| findstr ":%TARGET_PORT% "') do (
-    echo 协议: %%a
-    echo 地址: %%b
-    echo 进程ID: %%c
+    echo Protocol: %%a
+    echo Address: %%b
+    echo Process ID: %%c
     
-    REM 获取进程名称
+    REM Get process name
     for /f "tokens=1" %%d in ('tasklist /fi "PID eq %%c" /fo csv /nh 2^>nul ^| findstr /v "INFO:"') do (
         set PROCESS_NAME=%%d
         set PROCESS_NAME=!PROCESS_NAME:"=!
-        echo 进程名: !PROCESS_NAME!
+        echo Process Name: !PROCESS_NAME!
     )
     echo --------------------------------
 )
 
 echo.
-echo 解决方案:
+echo Solutions:
 echo ================================
-echo 1. 手动关闭占用进程
-echo 2. 自动结束占用进程 (谨慎使用)
-echo 3. 使用其他端口
-echo 4. 退出
+echo 1. Manually close the occupying process
+echo 2. Automatically kill the occupying process (use with caution)
+echo 3. Use a different port
+echo 4. Exit
 echo.
 
-set /p choice="请选择操作 (1-4): "
+set /p choice="Please choose action (1-4): "
 
 if "%choice%"=="1" goto manual_close
 if "%choice%"=="2" goto auto_kill
@@ -59,45 +59,45 @@ if "%choice%"=="4" goto end
 
 :manual_close
 echo.
-echo 📋 手动关闭进程步骤:
-echo 1. 打开任务管理器 (Ctrl+Shift+Esc)
-echo 2. 切换到 "详细信息" 选项卡
-echo 3. 找到上面显示的进程名和PID
-echo 4. 右键点击进程，选择 "结束任务"
-echo 5. 重新运行 start.bat
+echo Manual process closing steps:
+echo 1. Open Task Manager (Ctrl+Shift+Esc)
+echo 2. Switch to "Details" tab
+echo 3. Find the process name and PID shown above
+echo 4. Right-click the process, select "End Task"
+echo 5. Re-run start.bat
 echo.
 pause
 goto end
 
 :auto_kill
 echo.
-echo ⚠️  警告: 即将自动结束占用端口的进程
-echo 这可能会影响其他正在运行的程序
+echo Warning: About to automatically kill the process occupying the port
+echo This may affect other running programs
 echo.
-set /p confirm="确认继续? (y/N): "
+set /p confirm="Confirm continue? (y/N): "
 if /i not "%confirm%"=="y" goto end
 
 echo.
-echo 🔄 正在结束占用进程...
+echo Killing occupying process...
 
 for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":%TARGET_PORT% "') do (
-    echo 结束进程 PID: %%a
+    echo Killing process PID: %%a
     taskkill /PID %%a /F >nul 2>&1
     if !errorlevel! equ 0 (
-        echo ✅ 进程 %%a 已结束
+        echo [OK] Process %%a killed
     ) else (
-        echo ❌ 无法结束进程 %%a
+        echo [X] Cannot kill process %%a
     )
 )
 
 echo.
-echo 🔍 重新检查端口状态...
+echo Rechecking port status...
 netstat -ano | findstr ":%TARGET_PORT% " >nul
 if %errorlevel% neq 0 (
-    echo ✅ 端口 %TARGET_PORT% 现在可用
-    echo 可以运行 start.bat 启动服务
+    echo [OK] Port %TARGET_PORT% is now available
+    echo You can run start.bat to start the service
 ) else (
-    echo ❌ 端口仍被占用，请手动处理
+    echo [X] Port still occupied, please handle manually
 )
 echo.
 pause
@@ -105,21 +105,21 @@ goto end
 
 :use_other_port
 echo.
-echo 🔄 建议使用的替代端口:
-echo   8889 - 推荐
-echo   9999 - 备选
-echo   8080 - 常用
-echo   3000 - 开发常用
+echo Recommended alternative ports:
+echo   8889 - Recommended
+echo   9999 - Alternative
+echo   8080 - Common
+echo   3000 - Common for development
 echo.
-echo 修改方法:
-echo 1. 编辑 start.bat 文件
-echo 2. 将 "set PORT=8888" 改为 "set PORT=8889"
-echo 3. 保存并重新运行
+echo How to modify:
+echo 1. Edit start.bat file
+echo 2. Change "set PORT=8889" to "set PORT=9999"
+echo 3. Save and re-run
 echo.
 pause
 goto end
 
 :end
 echo.
-echo 工具结束
+echo Tool finished
 pause
