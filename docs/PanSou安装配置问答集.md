@@ -502,7 +502,7 @@ curl -X POST https://so.252035.xyz/api/search \
 3. **插件无法加载**
    ```cmd
    # 检查插件配置
-   set ENABLED_PLUGINS=labi,zhizhen,shandian,duoduo
+   set ENABLED_PLUGINS=pioz,xdpan,wanou,pansearch,zhizhen
    set ASYNC_PLUGIN_ENABLED=true
    ```
 

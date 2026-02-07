@@ -60,9 +60,9 @@ if %errorlevel% equ 0 (
 REM Telegram channels (recommended, can be customized)
 set CHANNELS=tgsearchers3,tgsearchers4,Aliyun_4K_Movies,bdbdndn11,yunpanx,bsbdbfjfjff,yp123pan,sbsbsnsqq,yunpanxunlei,tianyifc,BaiduCloudDisk,txtyzy,peccxinpd,gotopan,PanjClub
 
-REM Plugin configuration
+REM Plugin configuration (only pioz enabled, others are backup)
 set ASYNC_PLUGIN_ENABLED=true
-set ENABLED_PLUGINS=pioz,labi,zhizhen,shandian,duoduo,muou,wanou,hunhepan,jikepan,pansearch,panta,qupansou,hdr4k,pan666,susu,thepiratebay,xuexizhinan,panyq,ouge,huban,gying,qqpd,weibo,panwiki,quark4k,quarksoo,qupanshe,miaoso,yunsou,sousou,xdpan,mikuclub
+set ENABLED_PLUGINS=pioz
 
 REM Performance configuration
 set CONCURRENCY=25

@@ -105,7 +105,7 @@ set CHANNELS=tgsearchers3,tgsearchers4,Aliyun_4K_Movies,bdbdndn11,yunpanx
 
 REM 插件配置
 set ASYNC_PLUGIN_ENABLED=true
-set ENABLED_PLUGINS=pioz,labi,zhizhen,shandian,duoduo,muou,wanou,hunhepan,jikepan
+set ENABLED_PLUGINS=pioz,xdpan,wanou,pansearch,zhizhen
 
 REM 性能配置
 set CONCURRENCY=25
@@ -157,7 +157,7 @@ set PORT=8889  # 修改为你想要的端口
 
 ```batch
 # 启用的插件列表（逗号分隔）
-set ENABLED_PLUGINS=pioz,labi,zhizhen,shandian,duoduo,muou,wanou
+set ENABLED_PLUGINS=pioz,xdpan,wanou,pansearch,zhizhen
 
 # pioz 插件放在最前面表示优先搜索
 ```
@@ -264,7 +264,7 @@ set PORT=9999
 **现象**: 搜索结果只有 TG 频道  
 **解决**: 检查插件配置
 ```cmd
-set ENABLED_PLUGINS=pioz,labi,zhizhen,shandian
+set ENABLED_PLUGINS=pioz,xdpan,wanou,pansearch,zhizhen
 set ASYNC_PLUGIN_ENABLED=true
 ```
 
