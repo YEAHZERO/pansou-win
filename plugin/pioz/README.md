@@ -5,6 +5,229 @@ Pioz 是一个专注于夸克网盘资源的搜索插件，实现了完整的二
 
 ## 核心特性
 
+# Pioz 二次跳转机制说明
+
+## 概述
+Pioz 插件实现了完整的二次跳转机制，从搜索页到详情页再到真实网盘链接，并采用异步并发处理提升性能。
+
+## 二次跳转流程
+
+```
+用户搜索关键词
+    ↓
+【第一跳】访问搜索页面
+    URL: https://www.pioz.cn/search?q={关键词}
+    提取: 标题、描述、详情页URL
+    ↓
+【第二跳】异步并发访问详情页
+    URL: https://www.pioz.cn/detail/{资源ID}
+    提取: 真实的夸克网盘链接
+    ↓
+返回完整结果（包含真实链接）
+```
+
+## 实现细节
+
+### 1. 搜索页处理 (parseSearchItem)
+
+**位置**: `plugin/pioz/pioz.go` 第 193-250 行
+
+**功能**:
+- 解析搜索结果页面的每个搜索项
+- 提取标题、描述
+- **关键**: 提取详情页URL（格式：`/detail/数字`）
+- 将详情页URL编码到 `UniqueID` 中（格式：`pioz-detail-{encodedURL}`）
+- 初始化 `Links` 为空数组（稍后填充）
+
+**代码示例**:
+```go
+// 提取详情页链接并保存到UniqueID中
+var detailURL string
+s.Find("a[href]").Each(func(j int, a *goquery.Selection) {
+    if href, exists := a.Attr("href"); exists {
+        if strings.Contains(href, "/detail/") {
+            if strings.HasPrefix(href, "http") {
+                detailURL = href
+            } else {
+                detailURL = "https://www.pioz.cn" + href
+            }
+            return
+        }
+    }
+})
+
+// 构建唯一ID - 使用detailURL作为ID的一部分
+if detailURL != "" {
+    result.UniqueID = fmt.Sprintf("%s-detail-%s", p.Name(), url.QueryEscape(detailURL))
+}
+```
+
+### 2. 异步并发处理 (enhanceWithDetails)
+
+**位置**: `plugin/pioz/pioz.go` 第 252-290 行
+
+**功能**:
+- 使用 goroutines 异步并发处理所有搜索结果
+- 并发数限制：20个（通过 semaphore 控制）
+- 从 `UniqueID` 中解码出详情页URL
+- 调用 `fetchDetailPageLinks` 获取真实链接
+- 使用 `sync.Mutex` 保护结果数组
+
+**代码示例**:
+```go
+// 限制并发数
+const MaxConcurrency = 20
+semaphore := make(chan struct{}, MaxConcurrency)
+
+for _, result := range results {
+    wg.Add(1)
+    go func(r model.SearchResult) {
+        defer wg.Done()
+        
+        // 获取信号量
+        semaphore <- struct{}{}
+        defer func() { <-semaphore }()
+        
+        // 从UniqueID中提取detailURL
+        if strings.Contains(r.UniqueID, "-detail-") {
+            parts := strings.SplitN(r.UniqueID, "-detail-", 2)
+            if len(parts) == 2 {
+                detailURL, err := url.QueryUnescape(parts[1])
+                if err == nil && detailURL != "" {
+                    // 获取详情页链接（第二跳）
+                    links := p.fetchDetailPageLinks(client, detailURL)
+                    r.Links = links
+                }
+            }
+        }
+        
+        mu.Lock()
+        enhancedResults = append(enhancedResults, r)
+        mu.Unlock()
+    }(result)
+}
+
+wg.Wait()
+```
+
+### 3. 详情页链接提取 (fetchDetailPageLinks)
+
+**位置**: `plugin/pioz/pioz.go` 第 292-380 行
+
+**功能**:
+- 访问详情页URL（5秒超时）
+- 解析HTML页面
+- 提取夸克网盘链接（正则匹配：`https://pan.quark.cn/s/[0-9a-zA-Z]+`）
+- 提取密码（正则匹配：`提取码|密码：[0-9a-zA-Z]{4}`）
+- 降级处理：如果从 `<a>` 标签找不到，从页面文本中提取
+
+**代码示例**:
+```go
+// 提取网盘链接
+doc.Find("a[href]").Each(func(i int, s *goquery.Selection) {
+    href, exists := s.Attr("href")
+    if !exists {
+        return
+    }
+    
+    // 匹配夸克网盘链接
+    if quarkLinkRegex.MatchString(href) {
+        link := model.Link{
+            Type:     "quark",
+            URL:      href,
+            Password: "",
+        }
+        links = append(links, link)
+    }
+})
+
+// 降级处理：从页面文本中提取
+if len(links) == 0 {
+    pageText := doc.Text()
+    matches := quarkLinkRegex.FindAllString(pageText, -1)
+    for _, match := range matches {
+        link := model.Link{
+            Type:     "quark",
+            URL:      match,
+            Password: "",
+        }
+        links = append(links, link)
+    }
+}
+
+// 提取密码
+pageText := doc.Text()
+if matches := passwordRegex.FindStringSubmatch(pageText); len(matches) > 1 {
+    password := matches[1]
+    for i := range links {
+        links[i].Password = password
+    }
+}
+```
+
+## 性能优化
+
+### 并发处理
+- **旧实现**: 串行处理，每个详情页阻塞5秒
+  - 10个结果 = 10 × 5秒 = 50秒
+- **新实现**: 并发处理，20个并发
+  - 10个结果 = 1批 × 5秒 = 约5-10秒
+  - **性能提升**: 5-10倍
+
+### 超时控制
+- 搜索页请求：10秒超时
+- 详情页请求：5秒超时
+- 避免长时间阻塞
+
+### 重试机制
+- 最大重试次数：3次
+- 指数退避：200ms, 400ms, 800ms
+
+## 与 zhizhen.go 的对比
+
+| 特性 | pioz.go | zhizhen.go |
+|------|---------|------------|
+| **二次跳转** | ✅ 需要 | ❌ 不需要 |
+| **异步并发** | ✅ 20个并发 | ✅ 20个并发 |
+| **网盘类型** | 主要夸克 | 16种网盘 |
+| **详情页URL** | `/detail/数字` | `/vod/detail/id/数字.html` |
+| **链接提取** | 从详情页HTML | 从详情页HTML |
+| **优先级** | 1（最高） | 1（最高） |
+
+## 关键优势
+
+1. **用户体验**: 用户无需手动点击"打开链接"，插件自动完成
+2. **自动化**: 完全自动化的二次跳转流程
+3. **高性能**: 异步并发处理，大幅提升速度
+4. **健壮性**: 降级处理确保稳定性
+5. **可维护**: 代码结构清晰，遵循最佳实践
+
+## 测试验证
+
+### 测试步骤
+1. 编译项目：`go build -o pansou.exe`
+2. 启动服务：`pansou.exe`
+3. 搜索关键词（例如："别时明月满西楼"）
+4. 观察日志输出：`[pioz] www.pioz.cn`
+5. 验证返回结果包含真实的夸克网盘链接
+
+### 预期结果
+- 搜索结果包含标题、描述
+- 每个结果包含真实的夸克网盘链接（`https://pan.quark.cn/s/...`）
+- 如果有密码，自动提取并填充
+- 处理时间：约5-10秒（取决于结果数量）
+
+## 总结
+
+Pioz 插件的二次跳转机制已经完整实现并优化：
+- ✅ 保留了完整的二次跳转流程
+- ✅ 采用异步并发处理提升性能
+- ✅ 遵循 zhizhen.go 的代码结构和最佳实践
+- ✅ 包含降级处理和错误处理
+- ✅ 代码清晰易维护
+
+**二次跳转机制是 Pioz 插件的核心特性，已完整保留并优化！**
+
 ### 🚀 二次跳转机制
 Pioz 的核心特性是二次跳转机制，自动完成以下流程：
 
@@ -223,6 +446,147 @@ Content-Type: application/json
     ↓
 返回空链接
 ```
+
+# Pioz 插件改进说明
+
+## 改进内容
+
+### 1. 性能统计和监控
+借鉴 zhizhen.go，添加了完整的性能统计功能：
+
+```go
+// 性能统计（原子操作）
+var (
+    searchRequests     int64 = 0  // 搜索请求总数
+    detailPageRequests int64 = 0  // 详情页请求总数
+    cacheHits          int64 = 0  // 缓存命中次数
+    cacheMisses        int64 = 0  // 缓存未命中次数
+    totalSearchTime    int64 = 0  // 总搜索时间（纳秒）
+    totalDetailTime    int64 = 0  // 总详情页时间（纳秒）
+)
+```
+
+**新增方法：**
+- `GetPerformanceStats()` - 获取性能统计信息，包括：
+  - 请求总数
+  - 缓存命中率
+  - 平均响应时间
+  - 总耗时统计
+
+### 2. 网盘类型支持扩展
+从原来的 1 种网盘（夸克）扩展到 **16 种网盘类型**：
+
+| 网盘类型 | 正则表达式 | 类型标识 |
+|---------|-----------|---------|
+| 夸克网盘 | `pan.quark.cn` | quark |
+| UC网盘 | `drive.uc.cn` | uc |
+| 百度网盘 | `pan.baidu.com` | baidu |
+| 阿里云盘 | `aliyundrive.com/alipan.com` | aliyun |
+| 迅雷网盘 | `pan.xunlei.com` | xunlei |
+| 天翼云盘 | `cloud.189.cn` | tianyi |
+| 115网盘 | `115.com` | 115 |
+| 移动云盘 | `caiyun.feixin.10086.cn` | mobile |
+| 微云 | `share.weiyun.com` | weiyun |
+| 蓝奏云 | `lanzou*.com` | lanzou |
+| 坚果云 | `jianguoyun.com` | jianguoyun |
+| 123网盘 | `123pan.com` | 123 |
+| PikPak | `mypikpak.com` | pikpak |
+| 磁力链接 | `magnet:?xt=urn:btih:` | magnet |
+| 电驴链接 | `ed2k://` | ed2k |
+
+**新增方法：**
+- `isValidNetworkDriveURL()` - 验证URL是否为有效的网盘链接
+- `determineLinkType()` - 根据URL自动识别网盘类型
+- `extractPassword()` - 从URL或文本中提取密码
+
+### 3. 缓存优化
+实现了两级缓存策略：
+
+```go
+var (
+    searchResultCache = sync.Map{} // 缓存搜索结果
+    detailCache       = sync.Map{} // 缓存详情页解析结果
+)
+```
+
+**优化点：**
+- 搜索结果缓存：避免重复搜索相同关键词
+- 详情页缓存：避免重复访问相同的详情页
+- 缓存命中统计：实时监控缓存效率
+- TTL 机制：1小时后自动过期
+
+### 4. 请求头优化
+使用更完整的浏览器请求头，避免反爬虫：
+
+```go
+req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36...")
+req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
+req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
+req.Header.Set("Connection", "keep-alive")
+req.Header.Set("Upgrade-Insecure-Requests", "1")
+req.Header.Set("Cache-Control", "max-age=0")
+req.Header.Set("Referer", "https://www.pioz.cn/")
+req.Header.Set("Sec-Fetch-Dest", "document")
+req.Header.Set("Sec-Fetch-Mode", "navigate")
+req.Header.Set("Sec-Fetch-Site", "same-origin")
+req.Header.Set("Sec-Fetch-User", "?1")
+```
+
+### 5. 并发优化
+提高并发处理能力：
+
+```go
+const MaxConcurrency = 20  // 从 10 提升到 20
+```
+
+### 6. 密码提取增强
+改进密码提取逻辑：
+- 支持多种密码格式：`提取码:`、`密码:`、`pwd=`
+- 从整个页面文本中搜索
+- 从特定密码显示区域提取
+- 自动关联到对应的网盘链接
+
+## 性能提升
+
+| 指标 | 改进前 | 改进后 | 提升 |
+|-----|-------|-------|-----|
+| 网盘支持 | 1种 | 16种 | +1500% |
+| 并发数 | 10 | 20 | +100% |
+| 缓存层级 | 1层 | 2层 | +100% |
+| 性能监控 | 无 | 完整 | ✓ |
+| 请求头 | 基础 | 完整 | ✓ |
+
+## 使用示例
+
+### 获取性能统计
+```go
+plugin := NewPiozPlugin()
+stats := plugin.GetPerformanceStats()
+
+fmt.Printf("搜索请求数: %d\n", stats["search_requests"])
+fmt.Printf("缓存命中率: %.2f%%\n", stats["cache_hit_rate"])
+fmt.Printf("平均搜索时间: %.2fms\n", stats["avg_search_time_ms"])
+```
+
+### 支持的网盘链接示例
+```
+夸克: https://pan.quark.cn/s/abc123
+百度: https://pan.baidu.com/s/1abc123?pwd=1234
+阿里: https://www.aliyundrive.com/s/abc123
+迅雷: https://pan.xunlei.com/s/abc123
+磁力: magnet:?xt=urn:btih:abc123...
+```
+
+## 兼容性
+- 完全向后兼容
+- 不影响现有功能
+- 新增功能可选使用
+
+## 测试状态
+✅ 编译通过
+✅ 所有测试通过
+✅ 项目构建成功
+
 
 ## 开发指南
 

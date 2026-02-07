@@ -1,1 +1,64 @@
+# ============ 系统文件 ============
 .DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# ============ 开发环境配置 ============
+/.vscode/          # VS Code配置
+/.idea/            # IntelliJ IDEA
+/.kiro/            # Kiro AI工具配置
+/.github/          # GitHub配置（如果需要workflows可以注释掉）
+
+# ============ Go语言项目专用 ============
+# 二进制可执行文件
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+/pansou.exe
+/pansou
+/main.exe
+
+# 构建目录
+/bin/
+/dist/
+/out/
+/target/
+
+# Go工作区文件
+go.work
+go.work.sum
+
+# Go测试输出
+*.test
+*.out
+*.prof
+/coverage/
+/test-results/
+
+# Go包管理
+/vendor/
+/go/pkg/
+/go/bin/
+
+# ============ 其他语言/框架 ============
+/node_modules/
+
+# ============ 环境变量和配置文件 ============
+.env
+.env.local
+.env.*.local
+*.env
+
+# ============ 日志文件 ============
+*.log
+logs/
+
+# ============ 临时文件 ============
+*.tmp
+*.temp
+/tmp/
+__debug_bin
+**/go-build*/

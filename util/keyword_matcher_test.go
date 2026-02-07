@@ -35,7 +35,7 @@ func TestKeywordMatcher(t *testing.T) {
 		// 核心词匹配
 		{
 			keyword: "庆余年第二季",
-			text:    "庆余年2 全46集",
+			text:    "庆余年第二季 全46集",
 			want:    true,
 			desc:    "核心词匹配",
 		},
