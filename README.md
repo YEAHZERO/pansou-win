@@ -222,22 +222,50 @@ IdleConnTimeout:     60s  // 空闲连接超时
 
 ### 问题1：搜索返回 0 结果
 
-**可能原因**：
-- 缓存了错误结果
-- 关键词传递失败
-- 结果没有链接被过滤
+**症状**：
+```
+[pioz] API响应状态码: 404
+[搜索完成] 总结果：0
+```
+
+**原因**：Pioz API 端点可能暂时不可用或已改变
 
 **解决方案**：
+
+系统会自动降级到备用策略：
+1. **策略1**：深度搜索API（首选）
+2. **策略2**：HTML页面搜索（备用）
+3. **策略3**：热搜榜匹配（兜底）
+
+**测试方法**：
 ```bash
-# 1. 使用 refresh=true 强制刷新缓存
+# 使用调试脚本
+test-search-debug.bat
+
+# 或手动测试（强制刷新缓存）
 curl "http://localhost:8889/api/search?keyword=电影&refresh=true" \
   -H "Authorization: Bearer YOUR_TOKEN"
+```
 
-# 2. 清除缓存
+**查看日志**：
+```
+[pioz] ⚠️ 策略1失败：API返回状态码: 404
+[pioz] 尝试策略2：普通HTML搜索
+[pioz] ✅ 策略2成功：HTML搜索返回 15 个结果
+```
+
+详细诊断见：[搜索结果为0问题诊断](docs/搜索结果为0问题诊断.md)
+
+**如果仍然返回0结果**：
+```bash
+# 1. 清除缓存
 rd /s /q cache && mkdir cache
 
-# 3. 重启服务
+# 2. 重启服务
 stop.bat && start-simple.bat
+
+# 3. 测试网络连接
+curl -I https://www.pioz.cn
 ```
 
 ### 问题2：API 返回 400 错误

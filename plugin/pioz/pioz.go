@@ -239,6 +239,7 @@ func (p *PiozPlugin) searchImpl(client *http.Client, keyword string, ext map[str
 	// 策略1：深度搜索 API（首选）
 	results, err := p.performDeepSearch(client, keyword)
 	if err == nil && len(results) > 0 {
+		fmt.Printf("[%s] ✅ 策略1成功：深度搜索API返回 %d 个结果\n", p.Name(), len(results))
 		enhancedResults := p.enhanceWithDetails(client, results)
 		searchCache.Store(cacheKey, cachedResponse{
 			results:   enhancedResults,
@@ -246,11 +247,14 @@ func (p *PiozPlugin) searchImpl(client *http.Client, keyword string, ext map[str
 		})
 		return enhancedResults, nil
 	}
+	fmt.Printf("[%s] ⚠️ 策略1失败：%v\n", p.Name(), err)
 	
 	// 策略2：普通搜索页面（备用）
 	p.applyAntiCrawlerDelay()
+	fmt.Printf("[%s] 尝试策略2：普通HTML搜索\n", p.Name())
 	results, err = p.performRegularSearch(client, keyword)
 	if err == nil && len(results) > 0 {
+		fmt.Printf("[%s] ✅ 策略2成功：HTML搜索返回 %d 个结果\n", p.Name(), len(results))
 		enhancedResults := p.enhanceWithDetails(client, results)
 		searchCache.Store(cacheKey, cachedResponse{
 			results:   enhancedResults,
@@ -258,13 +262,17 @@ func (p *PiozPlugin) searchImpl(client *http.Client, keyword string, ext map[str
 		})
 		return enhancedResults, nil
 	}
+	fmt.Printf("[%s] ⚠️ 策略2失败：%v\n", p.Name(), err)
 	
 	// 策略3：首页热搜榜匹配（最后手段）
 	p.applyAntiCrawlerDelay()
+	fmt.Printf("[%s] 尝试策略3：热搜榜匹配\n", p.Name())
 	results, err = p.extractFromHotSearch(client, keyword)
 	if err != nil {
+		fmt.Printf("[%s] ❌ 策略3失败：%v\n", p.Name(), err)
 		return nil, fmt.Errorf("[%s] 所有搜索策略都失败: %w", p.Name(), err)
 	}
+	fmt.Printf("[%s] ✅ 策略3成功：热搜榜返回 %d 个结果\n", p.Name(), len(results))
 	
 	enhancedResults := p.enhanceWithDetails(client, results)
 	searchCache.Store(cacheKey, cachedResponse{
@@ -310,6 +318,8 @@ func (p *PiozPlugin) performDeepSearch(client *http.Client, keyword string) ([]m
 	}
 	
 	if resp.StatusCode != 200 {
+		// ⚠️ API可能已失效，记录详细信息后降级到其他策略
+		fmt.Printf("[%s] ⚠️ API返回状态码: %d，将尝试其他搜索策略\n", p.Name(), resp.StatusCode)
 		return nil, fmt.Errorf("API返回状态码: %d", resp.StatusCode)
 	}
 	
@@ -439,6 +449,7 @@ func (p *PiozPlugin) parseTime(timeStr string) time.Time {
 // performRegularSearch 执行普通搜索（HTML页面）
 func (p *PiozPlugin) performRegularSearch(client *http.Client, keyword string) ([]model.SearchResult, error) {
 	searchURL := fmt.Sprintf("%s/search?q=%s", SiteBaseURL, url.QueryEscape(keyword))
+	fmt.Printf("[%s] HTML搜索URL: %s\n", p.Name(), searchURL)
 	
 	req, err := http.NewRequest("GET", searchURL, nil)
 	if err != nil {
@@ -453,6 +464,8 @@ func (p *PiozPlugin) performRegularSearch(client *http.Client, keyword string) (
 		return nil, err
 	}
 	defer resp.Body.Close()
+	
+	fmt.Printf("[%s] HTML搜索响应状态码: %d\n", p.Name(), resp.StatusCode)
 	
 	if p.checkAntiCrawlerResponse(resp) {
 		atomic.AddInt64(&antiCrawlerBlocks, 1)
