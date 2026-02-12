@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"net/url"
 	"pansou/model"
@@ -25,6 +26,124 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// 获取字符串构建器
+func getStringBuilder() *strings.Builder {
+	sb := stringBuilderPool.Get().(*strings.Builder)
+	sb.Reset()
+	return sb
+}
+
+// 归还字符串构建器
+func putStringBuilder(sb *strings.Builder) {
+	sb.Reset()
+	stringBuilderPool.Put(sb)
+}
+
+// 获取链接对象
+func (p *PiozPlugin) getLink() *model.Link {
+	return p.linkPool.Get().(*model.Link)
+}
+
+// 归还链接对象
+func (p *PiozPlugin) putLink(link *model.Link) {
+	link.Type = ""
+	link.URL = ""
+	link.Password = ""
+	p.linkPool.Put(link)
+}
+
+// 获取搜索结果对象
+func (p *PiozPlugin) getSearchResult() *model.SearchResult {
+	return p.searchResultPool.Get().(*model.SearchResult)
+}
+
+// 归还搜索结果对象
+func (p *PiozPlugin) putSearchResult(result *model.SearchResult) {
+	result.UniqueID = ""
+	result.Title = ""
+	result.Content = ""
+	result.Datetime = time.Time{}
+	result.Links = nil
+	result.Channel = ""
+	p.searchResultPool.Put(result)
+}
+
+// ==================== 缓存管理 ====================
+
+// manageSearchCache 管理搜索缓存大小
+func manageSearchCache() {
+	cacheStats.Lock()
+	defer cacheStats.Unlock()
+
+	if cacheStats.searchCacheSize > MaxSearchCacheSize {
+		// 清理旧缓存
+		oldKeys := []interface{}{}
+		searchCache.Range(func(key, value interface{}) bool {
+			if cachedResp, ok := value.(cachedResponse); ok {
+				// 清理超过30分钟的缓存
+				if time.Since(cachedResp.timestamp) > CacheTTL {
+					oldKeys = append(oldKeys, key)
+				}
+			}
+			return true
+		})
+
+		// 删除旧缓存
+		for _, key := range oldKeys {
+			searchCache.Delete(key)
+			cacheStats.searchCacheSize--
+		}
+	}
+}
+
+// manageDetailCache 管理详情缓存大小
+func manageDetailCache() {
+	cacheStats.Lock()
+	defer cacheStats.Unlock()
+
+	if cacheStats.detailCacheSize > MaxDetailCacheSize {
+		// 清理旧缓存
+		oldKeys := []interface{}{}
+		detailCache.Range(func(key, value interface{}) bool {
+			// 简单清理，删除一半的缓存
+			if len(oldKeys) < cacheStats.detailCacheSize/2 {
+				oldKeys = append(oldKeys, key)
+			}
+			return true
+		})
+
+		// 删除旧缓存
+		for _, key := range oldKeys {
+			detailCache.Delete(key)
+			cacheStats.detailCacheSize--
+		}
+	}
+}
+
+// manageTransferCache 管理传输缓存大小
+func manageTransferCache() {
+	cacheStats.Lock()
+	defer cacheStats.Unlock()
+
+	if cacheStats.transferCacheSize > MaxTransferCacheSize {
+		// 清理旧缓存
+		oldKeys := []interface{}{}
+		transferCache.Range(func(key, value interface{}) bool {
+			// 简单清理，删除一半的缓存
+			if len(oldKeys) < cacheStats.transferCacheSize/2 {
+				oldKeys = append(oldKeys, key)
+			}
+			return true
+		})
+
+		// 删除旧缓存
+		for _, key := range oldKeys {
+			transferCache.Delete(key)
+			cacheStats.transferCacheSize--
+		}
+	}
 }
 
 const (
@@ -47,9 +166,12 @@ const (
 	CacheTTL = 30 * time.Minute
 
 	// 反爬策略配置
-	RequestDelayMin = 500 * time.Millisecond  // 最小请求间隔
-	RequestDelayMax = 1500 * time.Millisecond // 最大请求间隔
+	RequestDelayMin = 800 * time.Millisecond  // 最小请求间隔
+	RequestDelayMax = 2500 * time.Millisecond // 最大请求间隔
 	RetryCount      = 2                       // 重试次数
+
+	// 会话管理
+	SessionTimeout = 30 * time.Minute // 会话超时时间
 )
 
 // 预编译的正则表达式（支持16种网盘链接）
@@ -90,17 +212,57 @@ var (
 	sessionMutex    sync.RWMutex
 	lastRequestTime time.Time
 	requestCounter  int64
+
+	// 缓存统计
+	cacheStats = struct {
+		sync.RWMutex
+		searchCacheSize   int
+		detailCacheSize   int
+		transferCacheSize int
+	}{}
+
+	// 缓存大小限制
+	MaxSearchCacheSize   = 100
+	MaxDetailCacheSize   = 200
+	MaxTransferCacheSize = 300
 )
 
 // 性能统计
 var (
+	// 基本统计
 	searchRequests    int64 = 0
 	detailRequests    int64 = 0
 	cacheHits         int64 = 0
 	cacheMisses       int64 = 0
 	antiCrawlerBlocks int64 = 0
-	totalSearchTime   int64 = 0
-	totalDetailTime   int64 = 0
+
+	// 时间统计
+	totalSearchTime      int64 = 0
+	totalDetailTime      int64 = 0
+	totalAPIRequestTime  int64 = 0
+	totalHTMLRequestTime int64 = 0
+
+	// 错误统计
+	errorCount     int64 = 0
+	apiErrorCount  int64 = 0
+	htmlErrorCount int64 = 0
+
+	// 缓存统计
+	searchCacheHits   int64 = 0
+	detailCacheHits   int64 = 0
+	transferCacheHits int64 = 0
+
+	// 反爬统计
+	requestDelayCount int64 = 0
+	totalDelayTime    int64 = 0
+	userAgentChanges  int64 = 0
+
+	// 网络统计
+	successRequests int64 = 0
+	failedRequests  int64 = 0
+
+	// 性能统计互斥锁
+	statsMutex sync.RWMutex
 )
 
 // 缓存响应结构
@@ -132,9 +294,21 @@ type PiozPlugin struct {
 	optimizedClient  *http.Client
 	userAgents       []string
 	currentUserAgent string
-	// ✅ 添加对象池减少内存分配
-	linkPool sync.Pool
+	// 对象池减少内存分配
+	linkPool         sync.Pool
+	searchResultPool sync.Pool
 }
+
+// 字符串构建器池
+var (
+	stringBuilderPool = sync.Pool{
+		New: func() interface{} {
+			return &strings.Builder{}
+		},
+	}
+)
+
+// ==================== 插件初始化 ====================
 
 // init 注册插件
 func init() {
@@ -145,18 +319,21 @@ func init() {
 func NewPiozPlugin() *PiozPlugin {
 	// 创建优化的 HTTP 客户端
 	transport := &http.Transport{
-		MaxIdleConns:        MaxIdleConns,
-		MaxIdleConnsPerHost: MaxIdleConnsPerHost,
-		MaxConnsPerHost:     MaxConnsPerHost,
-		IdleConnTimeout:     IdleConnTimeout,
-		DisableKeepAlives:   false,
+		MaxIdleConns:          MaxIdleConns,
+		MaxIdleConnsPerHost:   MaxIdleConnsPerHost,
+		MaxConnsPerHost:       MaxConnsPerHost,
+		IdleConnTimeout:       IdleConnTimeout,
+		DisableKeepAlives:     false,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 2 * time.Second,
+		ResponseHeaderTimeout: 10 * time.Second,
 	}
 
 	client := &http.Client{
 		Transport: transport,
 		Timeout:   DefaultTimeout,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			// ✅ 限制重定向次数
+			// 限制重定向次数
 			if len(via) >= 10 {
 				return http.ErrUseLastResponse
 			}
@@ -190,15 +367,27 @@ func NewPiozPlugin() *PiozPlugin {
 		currentUserAgent: userAgents[randomIndex],
 	}
 
-	// ✅ 初始化对象池
+	// 初始化对象池
 	p.linkPool = sync.Pool{
 		New: func() interface{} {
 			return &model.Link{}
 		},
 	}
 
+	// 初始化搜索结果对象池
+	p.searchResultPool = sync.Pool{
+		New: func() interface{} {
+			return &model.SearchResult{}
+		},
+	}
+
+	// 启动性能监控
+	p.startPerformanceMonitor()
+
 	return p
 }
+
+// ==================== 搜索接口 ====================
 
 // Search 同步搜索接口
 func (p *PiozPlugin) Search(keyword string, ext map[string]interface{}) ([]model.SearchResult, error) {
@@ -221,6 +410,8 @@ func (p *PiozPlugin) SearchWithResult(keyword string, ext map[string]interface{}
 		IsFinal: true,
 	}, nil
 }
+
+// ==================== 搜索实现 ====================
 
 // searchImpl 实现搜索逻辑（多策略搜索）
 func (p *PiozPlugin) searchImpl(client *http.Client, keyword string, ext map[string]interface{}) ([]model.SearchResult, error) {
@@ -296,11 +487,20 @@ func (p *PiozPlugin) searchImpl(client *http.Client, keyword string, ext map[str
 			fmt.Printf("[%s] 结果增强完成，增强后结果数: %d\n", p.Name(), len(enhancedResults))
 		}
 
+		// 管理缓存大小
+		manageSearchCache()
+
 		// 缓存增强后的结果
 		searchCache.Store(cacheKey, cachedResponse{
 			results:   enhancedResults,
 			timestamp: time.Now(),
 		})
+
+		// 更新缓存统计
+		cacheStats.Lock()
+		cacheStats.searchCacheSize++
+		cacheStats.Unlock()
+
 		fmt.Printf("[%s] 结果已缓存，缓存键: %s\n", p.Name(), cacheKey)
 
 		return enhancedResults, nil
@@ -348,11 +548,20 @@ func (p *PiozPlugin) searchImpl(client *http.Client, keyword string, ext map[str
 			fmt.Printf("[%s] 结果增强完成，增强后结果数: %d\n", p.Name(), len(enhancedResults))
 		}
 
+		// 管理缓存大小
+		manageSearchCache()
+
 		// 缓存增强后的结果
 		searchCache.Store(cacheKey, cachedResponse{
 			results:   enhancedResults,
 			timestamp: time.Now(),
 		})
+
+		// 更新缓存统计
+		cacheStats.Lock()
+		cacheStats.searchCacheSize++
+		cacheStats.Unlock()
+
 		fmt.Printf("[%s] 结果已缓存，缓存键: %s\n", p.Name(), cacheKey)
 
 		return enhancedResults, nil
@@ -400,11 +609,20 @@ func (p *PiozPlugin) searchImpl(client *http.Client, keyword string, ext map[str
 			fmt.Printf("[%s] 结果增强完成，增强后结果数: %d\n", p.Name(), len(enhancedResults))
 		}
 
+		// 管理缓存大小
+		manageSearchCache()
+
 		// 缓存增强后的结果
 		searchCache.Store(cacheKey, cachedResponse{
 			results:   enhancedResults,
 			timestamp: time.Now(),
 		})
+
+		// 更新缓存统计
+		cacheStats.Lock()
+		cacheStats.searchCacheSize++
+		cacheStats.Unlock()
+
 		fmt.Printf("[%s] 结果已缓存，缓存键: %s\n", p.Name(), cacheKey)
 
 		return enhancedResults, nil
@@ -423,11 +641,20 @@ func (p *PiozPlugin) searchImpl(client *http.Client, keyword string, ext map[str
 			}
 		}
 
+		// 管理缓存大小
+		manageSearchCache()
+
 		// 缓存兜底结果
 		searchCache.Store(cacheKey, cachedResponse{
 			results:   results,
 			timestamp: time.Now(),
 		})
+
+		// 更新缓存统计
+		cacheStats.Lock()
+		cacheStats.searchCacheSize++
+		cacheStats.Unlock()
+
 		fmt.Printf("[%s] 兜底结果已缓存，缓存键: %s\n", p.Name(), cacheKey)
 
 		return results, nil
@@ -532,24 +759,37 @@ func (p *PiozPlugin) convertToSearchResult(item struct {
 	ViewURL    string `json:"view_url"`
 }) model.SearchResult {
 	// 构建内容描述
-	var contentParts []string
+	sb := getStringBuilder()
+	defer putStringBuilder(sb)
 
 	// 云盘类型
 	if item.CloudType != "" {
 		cloudTypeName := p.getCloudTypeName(item.CloudType)
 		if cloudTypeName != "" {
-			contentParts = append(contentParts, "类型: "+cloudTypeName)
+			if sb.Len() > 0 {
+				sb.WriteString(" | ")
+			}
+			sb.WriteString("类型: ")
+			sb.WriteString(cloudTypeName)
 		}
 	}
 
 	// 大小
 	if item.Size != "" {
-		contentParts = append(contentParts, "大小: "+item.Size)
+		if sb.Len() > 0 {
+			sb.WriteString(" | ")
+		}
+		sb.WriteString("大小: ")
+		sb.WriteString(item.Size)
 	}
 
 	// 时间
 	if item.Datetime != "" && item.Datetime != "0001-01-01T00:00:00Z" {
-		contentParts = append(contentParts, "分享时间: "+item.Datetime)
+		if sb.Len() > 0 {
+			sb.WriteString(" | ")
+		}
+		sb.WriteString("分享时间: ")
+		sb.WriteString(item.Datetime)
 	}
 
 	// 构建详情页URL
@@ -561,17 +801,17 @@ func (p *PiozPlugin) convertToSearchResult(item struct {
 	// 解析时间
 	datetime := p.parseTime(item.Datetime)
 
-	// ✅ 修复：包含 URL，便于详情页解析
+	// 包含 URL，便于详情页解析
 	uniqueID := fmt.Sprintf("%s-%s-%s", p.Name(), item.ID, url.QueryEscape(viewURL))
 
 	return model.SearchResult{
 		MessageID: uniqueID,
-		UniqueID:  uniqueID, // ✅ 使用包含URL的格式
+		UniqueID:  uniqueID,
 		Title:     item.Title,
-		Content:   strings.Join(contentParts, " | "),
+		Content:   sb.String(),
 		Datetime:  datetime,
-		Links:     []model.Link{}, // ❌ 改为空，等待 enhanceWithDetails 填充
-		Channel:   "",             // ⭐ 重要：插件搜索结果Channel必须为空
+		Links:     []model.Link{},
+		Channel:   "",
 	}
 }
 
@@ -948,18 +1188,30 @@ func (p *PiozPlugin) extractResultsFromJavaScript(pageContent, keyword string) [
 	// 转换为SearchResult
 	for i, item := range items {
 		// 构建内容描述
-		contentParts := []string{}
+		sb := getStringBuilder()
 		if item.CategoryName != "" {
-			contentParts = append(contentParts, "类型: "+item.CategoryName)
+			sb.WriteString("类型: ")
+			sb.WriteString(item.CategoryName)
 		}
 		if item.SourceURL != "" {
-			contentParts = append(contentParts, "来源: "+item.SourceURL)
+			if sb.Len() > 0 {
+				sb.WriteString(" | ")
+			}
+			sb.WriteString("来源: ")
+			sb.WriteString(item.SourceURL)
 		}
 		if item.ViewCount > 0 {
-			contentParts = append(contentParts, fmt.Sprintf("浏览: %d", item.ViewCount))
+			if sb.Len() > 0 {
+				sb.WriteString(" | ")
+			}
+			sb.WriteString("浏览: ")
+			sb.WriteString(fmt.Sprintf("%d", item.ViewCount))
 		}
 		if item.IsVIP == 1 {
-			contentParts = append(contentParts, "VIP资源")
+			if sb.Len() > 0 {
+				sb.WriteString(" | ")
+			}
+			sb.WriteString("VIP资源")
 		}
 
 		// 构建详情页URL
@@ -975,11 +1227,12 @@ func (p *PiozPlugin) extractResultsFromJavaScript(pageContent, keyword string) [
 		result := model.SearchResult{
 			UniqueID: uniqueID,
 			Title:    strings.TrimSpace(item.Title),
-			Content:  strings.Join(contentParts, " | "),
+			Content:  sb.String(),
 			Datetime: datetime,
 			Links:    []model.Link{},
 			Channel:  "",
 		}
+		putStringBuilder(sb)
 
 		// 如果直接有下载链接，添加到Links
 		if item.DownloadURL != "" {
@@ -1278,6 +1531,8 @@ func (p *PiozPlugin) parseDetailLink(a *goquery.Selection, index int) model.Sear
 	return result
 }
 
+// ==================== 详情页处理 ====================
+
 // enhanceWithDetails 异步获取详情页信息（二次跳转）
 func (p *PiozPlugin) enhanceWithDetails(client *http.Client, results []model.SearchResult) []model.SearchResult {
 	if len(results) == 0 {
@@ -1332,8 +1587,16 @@ func (p *PiozPlugin) enhanceWithDetails(client *http.Client, results []model.Sea
 			p.Name(), firstResult.Title, len(validLinks))
 	}
 
+	// 管理缓存大小
+	manageDetailCache()
+
 	// 缓存结果
 	detailCache.Store(firstResult.UniqueID, firstResult)
+
+	// 更新缓存统计
+	cacheStats.Lock()
+	cacheStats.detailCacheSize++
+	cacheStats.Unlock()
 
 	return []model.SearchResult{firstResult}
 }
@@ -1487,8 +1750,16 @@ func (p *PiozPlugin) tryTransferAPI(client *http.Client, result model.SearchResu
 	link := p.createLinkFromURL(transferResp.Data.URL, transferResp.Data.Password)
 	links := []model.Link{link}
 
+	// 管理缓存大小
+	manageTransferCache()
+
 	// 缓存结果
 	transferCache.Store(cacheKey, links)
+
+	// 更新缓存统计
+	cacheStats.Lock()
+	cacheStats.transferCacheSize++
+	cacheStats.Unlock()
 
 	return links
 }
@@ -1609,6 +1880,36 @@ func (p *PiozPlugin) parseResourceDetailPage(client *http.Client, result model.S
 		// 使用跳转后的页面内容
 		pageContent = string(postBody)
 		fmt.Printf("[%s] 成功处理'了解并同意获取'跳转\n", p.Name())
+	}
+
+	// 检查是否需要点击"获取资源"按钮
+	if strings.Contains(pageContent, "获取资源") || strings.Contains(pageContent, "点击获取") {
+		fmt.Printf("[%s] 页面包含'获取资源'按钮，需要点击获取真实链接\n", p.Name())
+
+		// 方法1：尝试从页面中提取资源ID并调用API
+		resourceID := p.extractResourceIDFromPage(pageContent)
+		if resourceID != "" {
+			fmt.Printf("[%s] 从页面提取到资源ID: %s\n", p.Name(), resourceID)
+			links := p.fetchResourceLinks(client, resourceID)
+			if len(links) > 0 {
+				fmt.Printf("[%s] 成功获取真实资源链接: %d个\n", p.Name(), len(links))
+				return links
+			}
+		}
+
+		// 方法2：模拟POST请求获取真实链接
+		links := p.postForResource(client, detailURL)
+		if len(links) > 0 {
+			fmt.Printf("[%s] POST请求成功获取资源链接: %d个\n", p.Name(), len(links))
+			return links
+		}
+	}
+
+	// 方法3：尝试从隐藏元素中提取分享链接
+	hiddenLinks := p.extractHiddenShareLinks(pageContent)
+	if len(hiddenLinks) > 0 {
+		fmt.Printf("[%s] 从隐藏元素提取到 %d 个分享链接\n", p.Name(), len(hiddenLinks))
+		return hiddenLinks
 	}
 
 	// 解析最终页面
@@ -1882,6 +2183,369 @@ func (p *PiozPlugin) extractAllURLs(text string) []string {
 
 // 反爬绕过策略
 
+// ==================== 资源获取辅助函数 ====================
+
+// extractResourceIDFromPage 从页面中提取资源ID
+func (p *PiozPlugin) extractResourceIDFromPage(pageContent string) string {
+	// 尝试从页面中提取资源ID
+	// 方法1：从详情页URL中提取
+	matches := detailIDRegex.FindStringSubmatch(pageContent)
+	if len(matches) > 1 {
+		return matches[1]
+	}
+
+	// 方法2：从JavaScript代码中提取
+	jsResourceIDRegex := regexp.MustCompile(`resourceId:\s*["'](\d+)["']`)
+	matches = jsResourceIDRegex.FindStringSubmatch(pageContent)
+	if len(matches) > 1 {
+		return matches[1]
+	}
+
+	// 方法3：从表单中提取
+	formResourceIDRegex := regexp.MustCompile(`name=["']resourceId["']\s*value=["'](\d+)["']`)
+	matches = formResourceIDRegex.FindStringSubmatch(pageContent)
+	if len(matches) > 1 {
+		return matches[1]
+	}
+
+	return ""
+}
+
+// fetchResourceLinks 根据资源ID获取资源链接
+func (p *PiozPlugin) fetchResourceLinks(client *http.Client, resourceID string) []model.Link {
+	// 首先尝试原有的transfer API
+	apiURL := fmt.Sprintf("%s/transfer?id=%s", APIBaseURL, url.QueryEscape(resourceID))
+
+	// 创建请求
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
+	if err != nil {
+		// 如果失败，尝试其他API端点
+		return p.fetchRealResourceLinks(client, resourceID)
+	}
+
+	// 设置请求头
+	p.setAPIHeaders(req)
+	p.addSessionCookies(req)
+
+	// 发送请求
+	resp, err := p.doRequestWithRetry(client, req)
+	if err != nil {
+		// 如果失败，尝试其他API端点
+		return p.fetchRealResourceLinks(client, resourceID)
+	}
+	defer resp.Body.Close()
+
+	// 检查响应
+	if resp.StatusCode != 200 {
+		// 如果失败，尝试其他API端点
+		return p.fetchRealResourceLinks(client, resourceID)
+	}
+
+	// 读取响应
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		// 如果失败，尝试其他API端点
+		return p.fetchRealResourceLinks(client, resourceID)
+	}
+
+	// 解析响应
+	var transferResp struct {
+		Success bool `json:"success"`
+		Data    struct {
+			URL      string `json:"url"`
+			Password string `json:"password"`
+			Type     string `json:"type"`
+		} `json:"data"`
+	}
+
+	if err := json.Unmarshal(body, &transferResp); err != nil || !transferResp.Success || transferResp.Data.URL == "" {
+		// 如果失败，尝试其他API端点
+		return p.fetchRealResourceLinks(client, resourceID)
+	}
+
+	// 创建链接对象
+	link := p.createLinkFromURL(transferResp.Data.URL, transferResp.Data.Password)
+	return []model.Link{link}
+}
+
+// fetchRealResourceLinks 调用API获取真实资源链接
+func (p *PiozPlugin) fetchRealResourceLinks(client *http.Client, resourceID string) []model.Link {
+	// 尝试多个可能的API端点
+	apiEndpoints := []string{
+		fmt.Sprintf("%s/resource/%s", APIBaseURL, resourceID),
+		fmt.Sprintf("%s/share/%s", APIBaseURL, resourceID),
+		fmt.Sprintf("%s/detail/%s", APIBaseURL, resourceID),
+		fmt.Sprintf("%s/getResource?id=%s", APIBaseURL, resourceID),
+		fmt.Sprintf("%s/api/resource/%s", APIBaseURL, resourceID),
+		fmt.Sprintf("%s/api/share/%s", APIBaseURL, resourceID),
+	}
+
+	for _, apiURL := range apiEndpoints {
+		fmt.Printf("[%s] 尝试API: %s\n", p.Name(), apiURL)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+		defer cancel()
+
+		req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
+		if err != nil {
+			continue
+		}
+
+		p.setAPIHeaders(req)
+		p.addSessionCookies(req)
+
+		resp, err := p.doRequestWithRetry(client, req)
+		if err != nil {
+			continue
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != 200 {
+			continue
+		}
+
+		body, err := p.readCompressedBody(resp)
+		if err != nil {
+			continue
+		}
+
+		// 格式1：直接返回URL字符串
+		urlStr := strings.TrimSpace(string(body))
+		if strings.HasPrefix(urlStr, "http") || strings.HasPrefix(urlStr, "//") {
+			if p.isValidShareLink(urlStr) {
+				link := p.createLinkFromURL(urlStr, "")
+				return []model.Link{link}
+			}
+		}
+
+		// 格式2：JSON格式 {url: "...", password: "..."}
+		var urlResp struct {
+			URL      string `json:"url"`
+			Password string `json:"password"`
+			Link     string `json:"link"`
+			ShareURL string `json:"share_url"`
+			Data     struct {
+				URL      string `json:"url"`
+				Password string `json:"password"`
+			} `json:"data"`
+		}
+
+		if err := json.Unmarshal(body, &urlResp); err == nil {
+			// 检查各种可能的字段
+			if urlResp.URL != "" && p.isValidShareLink(urlResp.URL) {
+				link := p.createLinkFromURL(urlResp.URL, urlResp.Password)
+				return []model.Link{link}
+			}
+			if urlResp.Data.URL != "" && p.isValidShareLink(urlResp.Data.URL) {
+				link := p.createLinkFromURL(urlResp.Data.URL, urlResp.Data.Password)
+				return []model.Link{link}
+			}
+			if urlResp.Link != "" && p.isValidShareLink(urlResp.Link) {
+				link := p.createLinkFromURL(urlResp.Link, urlResp.Password)
+				return []model.Link{link}
+			}
+			if urlResp.ShareURL != "" && p.isValidShareLink(urlResp.ShareURL) {
+				link := p.createLinkFromURL(urlResp.ShareURL, urlResp.Password)
+				return []model.Link{link}
+			}
+		}
+	}
+
+	return nil
+}
+
+// extractHiddenShareLinks 从隐藏元素中提取分享链接
+func (p *PiozPlugin) extractHiddenShareLinks(pageContent string) []model.Link {
+	var links []model.Link
+
+	// 匹配分享链接模式
+	sharePattern := regexp.MustCompile(`(https?://pan\.quark\.cn/s/[0-9a-zA-Z]+)`)
+	matches := sharePattern.FindAllStringSubmatch(pageContent, -1)
+
+	for _, match := range matches {
+		if len(match) > 1 {
+			urlStr := match[1]
+			if p.isValidShareLink(urlStr) {
+				link := p.createLinkFromURL(urlStr, "")
+				if !p.containsLink(links, link) {
+					links = append(links, link)
+					fmt.Printf("[%s] 从隐藏元素提取到分享链接: %s\n", p.Name(), urlStr)
+				}
+			}
+		}
+	}
+
+	return links
+}
+
+// containsLink 检查链接是否已存在
+func (p *PiozPlugin) containsLink(links []model.Link, target model.Link) bool {
+	for _, link := range links {
+		if link.URL == target.URL {
+			return true
+		}
+	}
+	return false
+}
+
+// isValidShareLink 检查是否为有效的分享链接（只接受 /s/ 格式）
+func (p *PiozPlugin) isValidShareLink(urlStr string) bool {
+	// 只接受 /s/ 格式的夸克网盘链接，拒绝 /g/ 群组链接
+	if strings.Contains(urlStr, "pan.quark.cn") {
+		return strings.Contains(urlStr, "/s/")
+	}
+	return p.isValidNetworkDriveURL(urlStr)
+}
+
+// postForResource 模拟POST请求获取真实链接
+func (p *PiozPlugin) postForResource(client *http.Client, detailURL string) []model.Link {
+	// 创建POST请求
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+
+	// 构建请求体
+	body := url.Values{}
+	body.Add("action", "get_resource")
+	body.Add("token", "")
+
+	// 创建请求
+	req, err := http.NewRequestWithContext(ctx, "POST", detailURL, strings.NewReader(body.Encode()))
+	if err != nil {
+		return nil
+	}
+
+	// 设置请求头
+	p.setStealthHeaders(req)
+	p.addSessionCookies(req)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Referer", detailURL)
+
+	// 发送请求
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+
+	// 检查响应
+	if resp.StatusCode != 200 {
+		return nil
+	}
+
+	// 读取响应
+	respBody, err := p.readCompressedBody(resp)
+	if err != nil {
+		return nil
+	}
+
+	// 解析响应
+	pageContent := string(respBody)
+
+	// 尝试从响应中提取链接
+	urls := p.extractAllURLs(pageContent)
+
+	// 过滤和创建链接对象
+	var links []model.Link
+	for _, urlStr := range urls {
+		if p.isValidNetworkDriveURL(urlStr) {
+			link := p.createLinkFromURL(urlStr, "")
+			links = append(links, link)
+		}
+	}
+
+	return links
+}
+
+// ==================== 性能监控 ====================
+
+// exportPerformanceStats 导出性能统计信息
+func (p *PiozPlugin) exportPerformanceStats() {
+	statsMutex.RLock()
+	defer statsMutex.RUnlock()
+
+	fmt.Printf("[%s] ===== 性能统计 =====\n", p.Name())
+
+	// 基本统计
+	fmt.Printf("[%s] 搜索请求: %d\n", p.Name(), searchRequests)
+	fmt.Printf("[%s] 详情请求: %d\n", p.Name(), detailRequests)
+	fmt.Printf("[%s] 缓存命中: %d\n", p.Name(), cacheHits)
+	fmt.Printf("[%s] 缓存未命中: %d\n", p.Name(), cacheMisses)
+	fmt.Printf("[%s] 反爬拦截: %d\n", p.Name(), antiCrawlerBlocks)
+
+	// 时间统计
+	searchTime := time.Duration(totalSearchTime) * time.Nanosecond
+	detailTime := time.Duration(totalDetailTime) * time.Nanosecond
+	apiTime := time.Duration(totalAPIRequestTime) * time.Nanosecond
+	htmlTime := time.Duration(totalHTMLRequestTime) * time.Nanosecond
+
+	fmt.Printf("[%s] 总搜索时间: %.2f秒\n", p.Name(), searchTime.Seconds())
+	fmt.Printf("[%s] 总详情时间: %.2f秒\n", p.Name(), detailTime.Seconds())
+	fmt.Printf("[%s] 总API请求时间: %.2f秒\n", p.Name(), apiTime.Seconds())
+	fmt.Printf("[%s] 总HTML请求时间: %.2f秒\n", p.Name(), htmlTime.Seconds())
+
+	// 平均时间
+	if searchRequests > 0 {
+		avgSearchTime := searchTime / time.Duration(searchRequests)
+		fmt.Printf("[%s] 平均搜索时间: %.2f毫秒\n", p.Name(), float64(avgSearchTime.Milliseconds()))
+	}
+
+	if detailRequests > 0 {
+		avgDetailTime := detailTime / time.Duration(detailRequests)
+		fmt.Printf("[%s] 平均详情时间: %.2f毫秒\n", p.Name(), float64(avgDetailTime.Milliseconds()))
+	}
+
+	// 错误统计
+	fmt.Printf("[%s] 总错误数: %d\n", p.Name(), errorCount)
+	fmt.Printf("[%s] API错误数: %d\n", p.Name(), apiErrorCount)
+	fmt.Printf("[%s] HTML错误数: %d\n", p.Name(), htmlErrorCount)
+
+	// 缓存统计
+	fmt.Printf("[%s] 搜索缓存命中: %d\n", p.Name(), searchCacheHits)
+	fmt.Printf("[%s] 详情缓存命中: %d\n", p.Name(), detailCacheHits)
+	fmt.Printf("[%s] 传输缓存命中: %d\n", p.Name(), transferCacheHits)
+
+	// 反爬统计
+	fmt.Printf("[%s] 请求延迟次数: %d\n", p.Name(), requestDelayCount)
+	totalDelay := time.Duration(totalDelayTime) * time.Nanosecond
+	fmt.Printf("[%s] 总延迟时间: %.2f秒\n", p.Name(), totalDelay.Seconds())
+	fmt.Printf("[%s] User-Agent切换次数: %d\n", p.Name(), userAgentChanges)
+
+	// 网络统计
+	fmt.Printf("[%s] 成功请求: %d\n", p.Name(), successRequests)
+	fmt.Printf("[%s] 失败请求: %d\n", p.Name(), failedRequests)
+
+	// 成功率
+	totalRequests := successRequests + failedRequests
+	if totalRequests > 0 {
+		successRate := float64(successRequests) / float64(totalRequests) * 100
+		fmt.Printf("[%s] 请求成功率: %.2f%%\n", p.Name(), successRate)
+	}
+
+	// 缓存命中率
+	totalCacheAccess := cacheHits + cacheMisses
+	if totalCacheAccess > 0 {
+		cacheHitRate := float64(cacheHits) / float64(totalCacheAccess) * 100
+		fmt.Printf("[%s] 缓存命中率: %.2f%%\n", p.Name(), cacheHitRate)
+	}
+
+	fmt.Printf("[%s] =================================\n", p.Name())
+}
+
+// startPerformanceMonitor 启动性能监控
+func (p *PiozPlugin) startPerformanceMonitor() {
+	go func() {
+		for {
+			time.Sleep(5 * time.Minute)
+			p.exportPerformanceStats()
+		}
+	}()
+}
+
+// ==================== 反爬策略 ====================
+
 // applyAntiCrawlerDelay 应用反爬延迟
 func (p *PiozPlugin) applyAntiCrawlerDelay() {
 	now := time.Now()
@@ -1889,15 +2553,23 @@ func (p *PiozPlugin) applyAntiCrawlerDelay() {
 	// 计算距离上次请求的时间
 	timeSinceLast := now.Sub(lastRequestTime)
 
+	// 动态调整延迟：根据请求计数
+	requestCount := atomic.LoadInt64(&requestCounter)
+	baseDelay := time.Duration(rand.Intn(int(RequestDelayMax-RequestDelayMin))) + RequestDelayMin
+
+	// 每增加5次请求，增加100ms延迟
+	dynamicDelay := baseDelay + time.Duration(requestCount/5)*100*time.Millisecond
+
 	// 如果请求间隔太短，添加延迟
-	if timeSinceLast < RequestDelayMin {
-		delay := RequestDelayMin - timeSinceLast
+	if timeSinceLast < dynamicDelay {
+		delay := dynamicDelay - timeSinceLast
 		// 添加随机延迟，避免固定模式
-		randomDelay := time.Duration(time.Now().UnixNano()%500) * time.Millisecond
+		randomDelay := time.Duration(time.Now().UnixNano()%300) * time.Millisecond
 		totalDelay := delay + randomDelay
 
 		if totalDelay > 0 {
 			time.Sleep(totalDelay)
+			fmt.Printf("[%s] 应用反爬延迟: %v\n", p.Name(), totalDelay)
 		}
 	}
 
@@ -1905,13 +2577,20 @@ func (p *PiozPlugin) applyAntiCrawlerDelay() {
 	lastRequestTime = time.Now()
 
 	// 每5次请求随机切换User-Agent
-	requestCount := atomic.AddInt64(&requestCounter, 1)
+	requestCount = atomic.AddInt64(&requestCounter, 1)
 	if requestCount%5 == 0 {
 		randomIndex := time.Now().UnixNano() % int64(len(p.userAgents))
 		if randomIndex < 0 {
 			randomIndex = -randomIndex
 		}
 		p.currentUserAgent = p.userAgents[randomIndex]
+		fmt.Printf("[%s] 切换User-Agent: %s\n", p.Name(), p.currentUserAgent)
+	}
+
+	// 每20次请求重置请求计数，避免延迟无限增加
+	if requestCount%20 == 0 {
+		atomic.StoreInt64(&requestCounter, 0)
+		fmt.Printf("[%s] 重置请求计数\n", p.Name())
 	}
 }
 
@@ -2148,9 +2827,14 @@ func (p *PiozPlugin) checkAntiCrawlerResponse(resp *http.Response) bool {
 func (p *PiozPlugin) doRequestWithRetry(client *http.Client, req *http.Request) (*http.Response, error) {
 	var lastErr error
 
-	// ✅ 添加最大重试时间限制
+	// 添加最大重试时间限制
 	maxRetryTime := 5 * time.Second
 	startTime := time.Now()
+
+	// 确保只设置一次的请求头
+	if req.Header.Get("Accept-Encoding") == "" {
+		req.Header.Set("Accept-Encoding", "gzip, deflate, br")
+	}
 
 	for i := 0; i < RetryCount; i++ {
 		if time.Since(startTime) > maxRetryTime {
@@ -2158,9 +2842,10 @@ func (p *PiozPlugin) doRequestWithRetry(client *http.Client, req *http.Request) 
 		}
 
 		if i > 0 {
-			// 指数退避
+			// 指数退避，增加随机抖动
 			backoff := time.Duration(1<<uint(i-1)) * 500 * time.Millisecond
-			time.Sleep(backoff)
+			randomJitter := time.Duration(time.Now().UnixNano()%100) * time.Millisecond
+			time.Sleep(backoff + randomJitter)
 
 			// 随机切换User-Agent
 			randomIndex := time.Now().UnixNano() % int64(len(p.userAgents))
@@ -2170,9 +2855,6 @@ func (p *PiozPlugin) doRequestWithRetry(client *http.Client, req *http.Request) 
 			req.Header.Set("User-Agent", p.userAgents[randomIndex])
 		}
 
-		// 添加Accept-Encoding头，告诉服务器我们支持gzip压缩
-		req.Header.Set("Accept-Encoding", "gzip, deflate, br")
-
 		resp, err := client.Do(req)
 		if err == nil {
 			// 更新cookies
@@ -2180,7 +2862,23 @@ func (p *PiozPlugin) doRequestWithRetry(client *http.Client, req *http.Request) 
 			sessionCookies = resp.Cookies()
 			sessionMutex.Unlock()
 
-			return resp, nil
+			// 检查响应状态码
+			if resp.StatusCode >= 200 && resp.StatusCode < 400 {
+				return resp, nil
+			}
+
+			// 对于404等错误，直接返回，不重试
+			if resp.StatusCode == 404 {
+				return resp, nil
+			}
+
+			// 对于500+错误，直接返回，不重试
+			if resp.StatusCode >= 500 {
+				return resp, nil
+			}
+
+			// 对于其他状态码，关闭响应体并继续重试
+			resp.Body.Close()
 		}
 
 		if resp != nil {
@@ -2188,6 +2886,13 @@ func (p *PiozPlugin) doRequestWithRetry(client *http.Client, req *http.Request) 
 		}
 
 		lastErr = err
+		if err != nil {
+			// 对于某些错误，直接返回，不重试
+			if strings.Contains(err.Error(), "no such host") ||
+				strings.Contains(err.Error(), "connection refused") {
+				return nil, err
+			}
+		}
 	}
 
 	return nil, fmt.Errorf("重试 %d 次后失败: %w", RetryCount, lastErr)
