@@ -54,7 +54,7 @@ const (
 
 // 预编译的正则表达式（支持16种网盘链接）
 var (
-	quarkLinkRegex      = regexp.MustCompile(`(?:https?:)?//pan\.quark\.cn/(?:s|g)/[0-9a-zA-Z]{12,}`)
+	quarkLinkRegex      = regexp.MustCompile(`(?:https?:)?//pan\.quark\.cn/(?:s|g)/[0-9a-zA-Z]+`)
 	baiduLinkRegex      = regexp.MustCompile(`(?:https?:)?//pan\.baidu\.com/s/[0-9a-zA-Z_\-]+(?:\?pwd=[0-9a-zA-Z]+)?`)
 	aliyunLinkRegex     = regexp.MustCompile(`(?:https?:)?//(?:www\.)?(?:aliyundrive\.com|alipan\.com)/s/[0-9a-zA-Z]+`)
 	ucLinkRegex         = regexp.MustCompile(`(?:https?:)?//drive\.uc\.cn/s/[0-9a-zA-Z]+(?:\?[^"'\s]*)?`)
