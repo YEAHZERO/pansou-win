@@ -421,5 +421,10 @@ stats := piozPlugin.GetPerformanceStats()
 **版本**: v8.0  
 **更新**: 2026-02-12  
 **状态**: ✅ 生产可用  
-**维护者**: PanSou Team
+
+**维护者**: abcxyzNone  
+**AI工具**: Kiro (Claude Sonnet 4.5)  
+**致谢**: PanSou Team & fish2018
+
+---
 
