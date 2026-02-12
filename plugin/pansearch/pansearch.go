@@ -24,18 +24,18 @@ var (
 
 	// 从__NEXT_DATA__脚本中提取数据的正则表达式
 	nextDataRegex = regexp.MustCompile(`<script id="__NEXT_DATA__" type="application/json">(.*?)</script>`)
-	
+
 	// 缓存相关变量
-	searchResultCache = sync.Map{}
+	searchResultCache  = sync.Map{}
 	lastCacheCleanTime = time.Now()
-	cacheTTL = 1 * time.Hour
+	cacheTTL           = 1 * time.Hour
 )
 
 // 在init函数中注册插件
 func init() {
 	// 使用全局超时时间创建插件实例并注册
 	plugin.RegisterGlobalPlugin(NewPanSearchPlugin())
-	
+
 	// 启动缓存清理goroutine
 	go startCacheCleaner()
 }
@@ -45,7 +45,7 @@ func startCacheCleaner() {
 	// 每小时清理一次缓存
 	ticker := time.NewTicker(1 * time.Hour)
 	defer ticker.Stop()
-	
+
 	for range ticker.C {
 		// 清空所有缓存
 		searchResultCache = sync.Map{}
@@ -506,7 +506,7 @@ func (p *PanSearchAsyncPlugin) SearchWithResult(keyword string, ext map[string]i
 func (p *PanSearchAsyncPlugin) doSearch(client *http.Client, keyword string, ext map[string]interface{}) ([]model.SearchResult, error) {
 	// 记录搜索URL到日志
 	fmt.Printf("[%s] %s\n", p.Name(), "www.pansearch.me")
-	
+
 	// 获取API基础URL
 	baseURL, err := p.getBaseURL(client)
 	if err != nil {
@@ -551,13 +551,13 @@ func (p *PanSearchAsyncPlugin) doSearch(client *http.Client, keyword string, ext
 	remainingResults := min(total-PageSize, p.maxResults-PageSize)
 	if remainingResults <= 0 {
 		results := p.convertResults(allResults, keyword)
-		
+
 		// 缓存结果
 		searchResultCache.Store(keyword, cachedResponse{
 			results:   results,
 			timestamp: time.Now(),
 		})
-		
+
 		return results, nil
 	}
 
@@ -567,13 +567,13 @@ func (p *PanSearchAsyncPlugin) doSearch(client *http.Client, keyword string, ext
 	// 如果只需要获取少量页面，直接返回
 	if neededPages <= 0 {
 		results := p.convertResults(allResults, keyword)
-		
+
 		// 缓存结果
 		searchResultCache.Store(keyword, cachedResponse{
 			results:   results,
 			timestamp: time.Now(),
 		})
-		
+
 		return results, nil
 	}
 
@@ -753,13 +753,13 @@ CollectResults:
 		case <-ctx.Done():
 			// 上下文超时，返回已收集的结果
 			results := p.convertResults(allResults, keyword)
-			
+
 			// 缓存结果（即使超时也缓存已获取的结果）
 			searchResultCache.Store(keyword, cachedResponse{
 				results:   results,
 				timestamp: time.Now(),
 			})
-			
+
 			return results, fmt.Errorf("搜索超时: %w", ctx.Err())
 		}
 	}
@@ -768,20 +768,20 @@ ProcessResults:
 	// 如果所有请求都失败且没有获得首页以外的结果，则返回错误
 	if submittedTasks > 0 && errorCount == submittedTasks && len(allResults) == len(firstPageResults) {
 		results := p.convertResults(allResults, keyword)
-		
+
 		// 缓存结果（即使有错误也缓存已获取的结果）
 		searchResultCache.Store(keyword, cachedResponse{
 			results:   results,
 			timestamp: time.Now(),
 		})
-		
+
 		return results, fmt.Errorf("所有后续页面请求失败: %v", lastError)
 	}
 
 	// 4. 去重和格式化结果
 	uniqueResults := p.deduplicateItems(allResults)
 	results := p.convertResults(uniqueResults, keyword)
-	
+
 	// 缓存结果
 	searchResultCache.Store(keyword, cachedResponse{
 		results:   results,

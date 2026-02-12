@@ -77,7 +77,7 @@ func initApp() {
 
 	// 确保异步插件系统初始化
 	plugin.InitAsyncPluginSystem()
-	
+
 	// 初始化插件统计管理器
 	statsManager := plugin.GetGlobalStatsManager()
 	// 启动自动保存（每5分钟保存一次）
@@ -154,7 +154,7 @@ func startServer() {
 	// 等待中断信号
 	<-quit
 	fmt.Println("正在关闭服务器...")
-	
+
 	// 保存插件统计数据
 	statsManager := plugin.GetGlobalStatsManager()
 	if err := statsManager.Save(); err != nil {
@@ -162,25 +162,25 @@ func startServer() {
 	} else {
 		fmt.Println("插件统计数据已保存")
 	}
-	
+
 	// 打印最终统计信息
 	statsManager.PrintStats()
 
 	// 优先保存缓存数据到磁盘（数据安全第一）
 	// 增加关闭超时时间，确保数据有足够时间保存
 	shutdownTimeout := 10 * time.Second
-	
+
 	if globalCacheWriteManager != nil {
 		if err := globalCacheWriteManager.Shutdown(shutdownTimeout); err != nil {
 			log.Printf("缓存数据保存失败: %v", err)
 		}
 	}
-	
+
 	// 额外确保内存缓存也被保存（双重保障）
 	if mainCache := service.GetEnhancedTwoLevelCache(); mainCache != nil {
 		if err := mainCache.FlushMemoryToDisk(); err != nil {
 			log.Printf("内存缓存同步失败: %v", err)
-		} 
+		}
 	}
 
 	// 设置关闭超时时间
@@ -254,7 +254,7 @@ func printServiceInfo(port string, pluginManager *plugin.PluginManager) {
 	if config.AppConfig.EnableCompression {
 		fmt.Printf("响应压缩已启用: 最小压缩大小=%d字节\n",
 			config.AppConfig.MinSizeToCompress)
-	} 
+	}
 
 	// 输出GC配置信息
 	fmt.Printf("GC配置: 触发阈值=%d%%, 内存优化=%v\n",

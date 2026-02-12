@@ -107,7 +107,7 @@ func TestTokenize(t *testing.T) {
 
 func TestMatchScore(t *testing.T) {
 	matcher := NewKeywordMatcher("这个江湖因我而存在")
-	
+
 	tests := []struct {
 		text string
 		desc string

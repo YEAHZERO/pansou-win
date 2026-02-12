@@ -22,12 +22,12 @@ func InitHTTPClient() {
 	transport := &http.Transport{
 		// 启用HTTP/2
 		ForceAttemptHTTP2: true,
-		
+
 		// TLS配置
 		TLSClientConfig: &tls.Config{
 			InsecureSkipVerify: false, // 生产环境应设为false
 		},
-		
+
 		// 连接池优化
 		MaxIdleConns:          100,
 		MaxIdleConnsPerHost:   20,
@@ -35,7 +35,7 @@ func InitHTTPClient() {
 		IdleConnTimeout:       90 * time.Second,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
-		
+
 		// TCP连接优化
 		DialContext: (&net.Dialer{
 			Timeout:   30 * time.Second,
@@ -83,33 +83,33 @@ func GetHTTPClient() *http.Client {
 func FetchHTML(targetURL string) (string, error) {
 	// 使用优化后的HTTP客户端
 	client := GetHTTPClient()
-	
+
 	// 创建请求
 	req, err := http.NewRequest("GET", targetURL, nil)
 	if err != nil {
 		return "", err
 	}
-	
+
 	// 设置请求头
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
 	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
 	req.Header.Set("Accept-Language", "en-US,en;q=0.5")
 	req.Header.Set("Connection", "keep-alive")
 	req.Header.Set("Upgrade-Insecure-Requests", "1")
-	
+
 	// 发送请求
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", err
 	}
 	defer resp.Body.Close()
-	
+
 	// 读取响应体
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return "", err
 	}
-	
+
 	return string(body), nil
 }
 
@@ -132,4 +132,4 @@ func ExtractDomain(rawURL string) string {
 		return rawURL
 	}
 	return parsedURL.Host
-} 
+}

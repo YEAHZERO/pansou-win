@@ -42,12 +42,12 @@ func GetGlobalStatsManager() *GlobalPluginStatsManager {
 		if statsFile == "" {
 			statsFile = "./cache/plugin_stats.json"
 		}
-		
+
 		globalStatsManager = &GlobalPluginStatsManager{
 			stats:     make(map[string]*PluginStats),
 			statsFile: statsFile,
 		}
-		
+
 		// 加载已有统计数据
 		globalStatsManager.Load()
 	})
@@ -58,7 +58,7 @@ func GetGlobalStatsManager() *GlobalPluginStatsManager {
 func (m *GlobalPluginStatsManager) RecordSearch(pluginName string, resultCount int, responseTime time.Duration, success bool) {
 	m.statsLock.Lock()
 	defer m.statsLock.Unlock()
-	
+
 	stats, exists := m.stats[pluginName]
 	if !exists {
 		stats = &PluginStats{
@@ -66,20 +66,20 @@ func (m *GlobalPluginStatsManager) RecordSearch(pluginName string, resultCount i
 		}
 		m.stats[pluginName] = stats
 	}
-	
+
 	stats.TotalSearches++
 	stats.LastSearchTime = time.Now()
-	
+
 	if success {
 		stats.SuccessSearches++
 		stats.TotalResults += int64(resultCount)
-		
+
 		// 更新平均结果数
 		stats.AvgResults = float64(stats.TotalResults) / float64(stats.SuccessSearches)
 	} else {
 		stats.FailedSearches++
 	}
-	
+
 	// 更新平均响应时间
 	if stats.TotalSearches == 1 {
 		stats.AvgResponseTime = float64(responseTime.Milliseconds())
@@ -93,7 +93,7 @@ func (m *GlobalPluginStatsManager) RecordSearch(pluginName string, resultCount i
 func (m *GlobalPluginStatsManager) GetStats(pluginName string) *PluginStats {
 	m.statsLock.RLock()
 	defer m.statsLock.RUnlock()
-	
+
 	if stats, exists := m.stats[pluginName]; exists {
 		// 返回副本
 		statsCopy := *stats
@@ -106,7 +106,7 @@ func (m *GlobalPluginStatsManager) GetStats(pluginName string) *PluginStats {
 func (m *GlobalPluginStatsManager) GetAllStats() map[string]*PluginStats {
 	m.statsLock.RLock()
 	defer m.statsLock.RUnlock()
-	
+
 	result := make(map[string]*PluginStats)
 	for name, stats := range m.stats {
 		statsCopy := *stats
@@ -119,7 +119,7 @@ func (m *GlobalPluginStatsManager) GetAllStats() map[string]*PluginStats {
 func (m *GlobalPluginStatsManager) SetCustomPriority(pluginName string, priority int) error {
 	m.statsLock.Lock()
 	defer m.statsLock.Unlock()
-	
+
 	stats, exists := m.stats[pluginName]
 	if !exists {
 		stats = &PluginStats{
@@ -127,9 +127,9 @@ func (m *GlobalPluginStatsManager) SetCustomPriority(pluginName string, priority
 		}
 		m.stats[pluginName] = stats
 	}
-	
+
 	stats.CustomPriority = priority
-	
+
 	// 保存到文件
 	return m.saveUnlocked()
 }
@@ -138,7 +138,7 @@ func (m *GlobalPluginStatsManager) SetCustomPriority(pluginName string, priority
 func (m *GlobalPluginStatsManager) GetCustomPriority(pluginName string) int {
 	m.statsLock.RLock()
 	defer m.statsLock.RUnlock()
-	
+
 	if stats, exists := m.stats[pluginName]; exists {
 		return stats.CustomPriority
 	}
@@ -159,18 +159,18 @@ func (m *GlobalPluginStatsManager) saveUnlocked() error {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("创建统计目录失败: %w", err)
 	}
-	
+
 	// 序列化数据
 	data, err := json.MarshalIndent(m.stats, "", "  ")
 	if err != nil {
 		return fmt.Errorf("序列化统计数据失败: %w", err)
 	}
-	
+
 	// 写入文件
 	if err := os.WriteFile(m.statsFile, data, 0644); err != nil {
 		return fmt.Errorf("写入统计文件失败: %w", err)
 	}
-	
+
 	return nil
 }
 
@@ -178,23 +178,23 @@ func (m *GlobalPluginStatsManager) saveUnlocked() error {
 func (m *GlobalPluginStatsManager) Load() error {
 	m.statsLock.Lock()
 	defer m.statsLock.Unlock()
-	
+
 	// 检查文件是否存在
 	if _, err := os.Stat(m.statsFile); os.IsNotExist(err) {
 		return nil // 文件不存在，不是错误
 	}
-	
+
 	// 读取文件
 	data, err := os.ReadFile(m.statsFile)
 	if err != nil {
 		return fmt.Errorf("读取统计文件失败: %w", err)
 	}
-	
+
 	// 反序列化
 	if err := json.Unmarshal(data, &m.stats); err != nil {
 		return fmt.Errorf("解析统计数据失败: %w", err)
 	}
-	
+
 	return nil
 }
 
@@ -202,23 +202,23 @@ func (m *GlobalPluginStatsManager) Load() error {
 func (m *GlobalPluginStatsManager) PrintStats() {
 	m.statsLock.RLock()
 	defer m.statsLock.RUnlock()
-	
+
 	fmt.Println("\n========== 插件搜索效能统计 ==========")
-	fmt.Printf("%-15s | %8s | %8s | %8s | %8s | %10s | %8s | %8s\n", 
+	fmt.Printf("%-15s | %8s | %8s | %8s | %8s | %10s | %8s | %8s\n",
 		"插件名称", "搜索次数", "成功次数", "总结果数", "平均结果", "平均响应(ms)", "成功率(%)", "自定义优先级")
 	fmt.Println("----------------------------------------------------------------------------------------")
-	
+
 	for _, stats := range m.stats {
 		successRate := float64(0)
 		if stats.TotalSearches > 0 {
 			successRate = float64(stats.SuccessSearches) / float64(stats.TotalSearches) * 100
 		}
-		
+
 		priorityStr := "-"
 		if stats.CustomPriority > 0 {
 			priorityStr = fmt.Sprintf("%d", stats.CustomPriority)
 		}
-		
+
 		fmt.Printf("%-15s | %8d | %8d | %8d | %8.1f | %10.1f | %8.1f | %8s\n",
 			stats.PluginName,
 			stats.TotalSearches,
@@ -237,7 +237,7 @@ func (m *GlobalPluginStatsManager) StartAutoSave(interval time.Duration) {
 	go func() {
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
-		
+
 		for range ticker.C {
 			if err := m.Save(); err != nil {
 				fmt.Printf("[统计] 自动保存失败: %v\n", err)

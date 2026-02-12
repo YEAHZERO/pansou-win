@@ -57,21 +57,21 @@ var (
 	passwordRegex = regexp.MustCompile(`\?pwd=([0-9a-zA-Z]+)`)
 
 	// 常见网盘链接的正则表达式（支持16种类型）
-	quarkLinkRegex     = regexp.MustCompile(`https?://pan\.quark\.cn/s/[0-9a-zA-Z]+`)
-	ucLinkRegex        = regexp.MustCompile(`https?://drive\.uc\.cn/s/[0-9a-zA-Z]+(\?[^"'\s]*)?`)
-	baiduLinkRegex     = regexp.MustCompile(`https?://pan\.baidu\.com/s/[0-9a-zA-Z_\-]+(\?pwd=[0-9a-zA-Z]+)?`)
-	aliyunLinkRegex    = regexp.MustCompile(`https?://(www\.)?(aliyundrive\.com|alipan\.com)/s/[0-9a-zA-Z]+`)
-	xunleiLinkRegex    = regexp.MustCompile(`https?://pan\.xunlei\.com/s/[0-9a-zA-Z_\-]+(\?pwd=[0-9a-zA-Z]+)?`)
-	tianyiLinkRegex    = regexp.MustCompile(`https?://cloud\.189\.cn/t/[0-9a-zA-Z]+`)
-	link115Regex       = regexp.MustCompile(`https?://115\.com/s/[0-9a-zA-Z]+`)
-	mobileLinkRegex    = regexp.MustCompile(`https?://caiyun\.feixin\.10086\.cn/[0-9a-zA-Z]+`)
-	weiyunLinkRegex    = regexp.MustCompile(`https?://share\.weiyun\.com/[0-9a-zA-Z]+`)
-	lanzouLinkRegex    = regexp.MustCompile(`https?://(www\.)?(lanzou[uixys]*|lan[zs]o[ux])\.(com|net|org)/[0-9a-zA-Z]+`)
+	quarkLinkRegex      = regexp.MustCompile(`https?://pan\.quark\.cn/s/[0-9a-zA-Z]+`)
+	ucLinkRegex         = regexp.MustCompile(`https?://drive\.uc\.cn/s/[0-9a-zA-Z]+(\?[^"'\s]*)?`)
+	baiduLinkRegex      = regexp.MustCompile(`https?://pan\.baidu\.com/s/[0-9a-zA-Z_\-]+(\?pwd=[0-9a-zA-Z]+)?`)
+	aliyunLinkRegex     = regexp.MustCompile(`https?://(www\.)?(aliyundrive\.com|alipan\.com)/s/[0-9a-zA-Z]+`)
+	xunleiLinkRegex     = regexp.MustCompile(`https?://pan\.xunlei\.com/s/[0-9a-zA-Z_\-]+(\?pwd=[0-9a-zA-Z]+)?`)
+	tianyiLinkRegex     = regexp.MustCompile(`https?://cloud\.189\.cn/t/[0-9a-zA-Z]+`)
+	link115Regex        = regexp.MustCompile(`https?://115\.com/s/[0-9a-zA-Z]+`)
+	mobileLinkRegex     = regexp.MustCompile(`https?://caiyun\.feixin\.10086\.cn/[0-9a-zA-Z]+`)
+	weiyunLinkRegex     = regexp.MustCompile(`https?://share\.weiyun\.com/[0-9a-zA-Z]+`)
+	lanzouLinkRegex     = regexp.MustCompile(`https?://(www\.)?(lanzou[uixys]*|lan[zs]o[ux])\.(com|net|org)/[0-9a-zA-Z]+`)
 	jianguoyunLinkRegex = regexp.MustCompile(`https?://(www\.)?jianguoyun\.com/p/[0-9a-zA-Z]+`)
-	link123Regex       = regexp.MustCompile(`https?://123pan\.com/s/[0-9a-zA-Z]+`)
-	pikpakLinkRegex    = regexp.MustCompile(`https?://mypikpak\.com/s/[0-9a-zA-Z]+`)
-	magnetLinkRegex    = regexp.MustCompile(`magnet:\?xt=urn:btih:[0-9a-fA-F]{40}`)
-	ed2kLinkRegex      = regexp.MustCompile(`ed2k://\|file\|.+\|\d+\|[0-9a-fA-F]{32}\|/`)
+	link123Regex        = regexp.MustCompile(`https?://123pan\.com/s/[0-9a-zA-Z]+`)
+	pikpakLinkRegex     = regexp.MustCompile(`https?://mypikpak\.com/s/[0-9a-zA-Z]+`)
+	magnetLinkRegex     = regexp.MustCompile(`magnet:\?xt=urn:btih:[0-9a-fA-F]{40}`)
+	ed2kLinkRegex       = regexp.MustCompile(`ed2k://\|file\|.+\|\d+\|[0-9a-fA-F]{32}\|/`)
 
 	// 缓存相关
 	detailCache = sync.Map{} // 缓存详情页解析结果
@@ -138,7 +138,7 @@ func (p *ZhizhenAsyncPlugin) searchImpl(client *http.Client, keyword string, ext
 
 	// 1. 构建搜索URL
 	searchURL := fmt.Sprintf("https://xiaomi666.fun/index.php/vod/search/wd/%s.html", url.QueryEscape(keyword))
-	
+
 	// 记录搜索URL到日志
 	fmt.Printf("[%s] %s\n", p.Name(), "xiaomi666.fun")
 
@@ -289,7 +289,7 @@ func (p *ZhizhenAsyncPlugin) parseSearchItem(s *goquery.Selection, keyword strin
 	}
 
 	result.Content = strings.Join(contentParts, "\n")
-	result.Channel = "" // 插件搜索结果不设置频道名，只有Telegram频道结果才设置
+	result.Channel = ""           // 插件搜索结果不设置频道名，只有Telegram频道结果才设置
 	result.Datetime = time.Time{} // 使用零值而不是nil，参考jikepan插件标准
 
 	return result
@@ -298,29 +298,29 @@ func (p *ZhizhenAsyncPlugin) parseSearchItem(s *goquery.Selection, keyword strin
 // isValidNetworkDriveURL 检查URL是否为有效的网盘链接
 func (p *ZhizhenAsyncPlugin) isValidNetworkDriveURL(url string) bool {
 	// 过滤掉明显无效的链接
-	if strings.Contains(url, "javascript:") || 
-	   strings.Contains(url, "#") ||
-	   url == "" ||
-	   (!strings.HasPrefix(url, "http") && !strings.HasPrefix(url, "magnet:") && !strings.HasPrefix(url, "ed2k:")) {
+	if strings.Contains(url, "javascript:") ||
+		strings.Contains(url, "#") ||
+		url == "" ||
+		(!strings.HasPrefix(url, "http") && !strings.HasPrefix(url, "magnet:") && !strings.HasPrefix(url, "ed2k:")) {
 		return false
 	}
-	
+
 	// 检查是否匹配任何支持的网盘格式（16种）
 	return quarkLinkRegex.MatchString(url) ||
-		   ucLinkRegex.MatchString(url) ||
-		   baiduLinkRegex.MatchString(url) ||
-		   aliyunLinkRegex.MatchString(url) ||
-		   xunleiLinkRegex.MatchString(url) ||
-		   tianyiLinkRegex.MatchString(url) ||
-		   link115Regex.MatchString(url) ||
-		   mobileLinkRegex.MatchString(url) ||
-		   weiyunLinkRegex.MatchString(url) ||
-		   lanzouLinkRegex.MatchString(url) ||
-		   jianguoyunLinkRegex.MatchString(url) ||
-		   link123Regex.MatchString(url) ||
-		   pikpakLinkRegex.MatchString(url) ||
-		   magnetLinkRegex.MatchString(url) ||
-		   ed2kLinkRegex.MatchString(url)
+		ucLinkRegex.MatchString(url) ||
+		baiduLinkRegex.MatchString(url) ||
+		aliyunLinkRegex.MatchString(url) ||
+		xunleiLinkRegex.MatchString(url) ||
+		tianyiLinkRegex.MatchString(url) ||
+		link115Regex.MatchString(url) ||
+		mobileLinkRegex.MatchString(url) ||
+		weiyunLinkRegex.MatchString(url) ||
+		lanzouLinkRegex.MatchString(url) ||
+		jianguoyunLinkRegex.MatchString(url) ||
+		link123Regex.MatchString(url) ||
+		pikpakLinkRegex.MatchString(url) ||
+		magnetLinkRegex.MatchString(url) ||
+		ed2kLinkRegex.MatchString(url)
 }
 
 // determineLinkType 根据URL确定链接类型（支持16种类型）
@@ -599,14 +599,14 @@ func (p *ZhizhenAsyncPlugin) GetPerformanceStats() map[string]interface{} {
 	}
 
 	return map[string]interface{}{
-		"search_requests":        totalSearchRequests,
-		"detail_page_requests":   totalDetailRequests,
-		"cache_hits":            totalCacheHits,
-		"cache_misses":          totalCacheMisses,
-		"cache_hit_rate":        cacheHitRate,
-		"avg_search_time_ms":    avgSearchTime,
-		"avg_detail_time_ms":    avgDetailTime,
-		"total_search_time_ns":  totalSearchTime,
-		"total_detail_time_ns":  totalDetailTime,
+		"search_requests":      totalSearchRequests,
+		"detail_page_requests": totalDetailRequests,
+		"cache_hits":           totalCacheHits,
+		"cache_misses":         totalCacheMisses,
+		"cache_hit_rate":       cacheHitRate,
+		"avg_search_time_ms":   avgSearchTime,
+		"avg_detail_time_ms":   avgDetailTime,
+		"total_search_time_ns": totalSearchTime,
+		"total_detail_time_ns": totalDetailTime,
 	}
 }

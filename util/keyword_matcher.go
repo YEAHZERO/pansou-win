@@ -18,10 +18,10 @@ func NewKeywordMatcher(keyword string) *KeywordMatcher {
 		keyword:      keyword,
 		lowerKeyword: strings.ToLower(keyword),
 	}
-	
+
 	// 分词
 	matcher.tokens = tokenize(keyword)
-	
+
 	return matcher
 }
 
@@ -34,14 +34,14 @@ func (m *KeywordMatcher) Match(text string) bool {
 	if text == "" {
 		return false
 	}
-	
+
 	lowerText := strings.ToLower(text)
-	
+
 	// 策略1：完全匹配
 	if strings.Contains(lowerText, m.lowerKeyword) {
 		return true
 	}
-	
+
 	// 策略2：分词匹配
 	// 如果关键词只有1-2个词，要求全部匹配
 	// 如果关键词有3个以上的词，要求80%以上匹配
@@ -52,10 +52,10 @@ func (m *KeywordMatcher) Match(text string) bool {
 				matchCount++
 			}
 		}
-		
+
 		// 计算匹配率
 		matchRate := float64(matchCount) / float64(len(m.tokens))
-		
+
 		// 根据关键词长度调整匹配阈值
 		threshold := 0.8 // 默认80%
 		if len(m.tokens) <= 2 {
@@ -63,12 +63,12 @@ func (m *KeywordMatcher) Match(text string) bool {
 		} else if len(m.tokens) >= 5 {
 			threshold = 0.6 // 长关键词降低到60%
 		}
-		
+
 		if matchRate >= threshold {
 			return true
 		}
 	}
-	
+
 	// 策略3：核心词匹配
 	// 去除常见词后，检查核心词是否匹配
 	coreTokens := filterCommonWords(m.tokens)
@@ -79,13 +79,13 @@ func (m *KeywordMatcher) Match(text string) bool {
 				coreMatchCount++
 			}
 		}
-		
+
 		// 核心词要求至少50%匹配
 		if len(coreTokens) > 0 && float64(coreMatchCount)/float64(len(coreTokens)) >= 0.5 {
 			return true
 		}
 	}
-	
+
 	return false
 }
 
@@ -94,14 +94,14 @@ func (m *KeywordMatcher) MatchScore(text string) int {
 	if text == "" {
 		return 0
 	}
-	
+
 	lowerText := strings.ToLower(text)
-	
+
 	// 完全匹配：100分
 	if strings.Contains(lowerText, m.lowerKeyword) {
 		return 100
 	}
-	
+
 	// 分词匹配：根据匹配率计算分数
 	if len(m.tokens) > 0 {
 		matchCount := 0
@@ -110,11 +110,11 @@ func (m *KeywordMatcher) MatchScore(text string) int {
 				matchCount++
 			}
 		}
-		
+
 		matchRate := float64(matchCount) / float64(len(m.tokens))
 		return int(matchRate * 80) // 最高80分
 	}
-	
+
 	return 0
 }
 
@@ -124,14 +124,14 @@ func tokenize(text string) []string {
 	if text == "" {
 		return nil
 	}
-	
+
 	var tokens []string
 	var currentToken strings.Builder
 	var lastType runeType
-	
+
 	for _, r := range text {
 		currentType := getRuneType(r)
-		
+
 		// 类型变化时，保存当前token
 		if lastType != runeTypeUnknown && currentType != lastType {
 			if currentToken.Len() > 0 {
@@ -142,15 +142,15 @@ func tokenize(text string) []string {
 				currentToken.Reset()
 			}
 		}
-		
+
 		// 跳过空格和标点
 		if currentType != runeTypeSpace && currentType != runeTypePunct {
 			currentToken.WriteRune(r)
 		}
-		
+
 		lastType = currentType
 	}
-	
+
 	// 保存最后一个token
 	if currentToken.Len() > 0 {
 		token := currentToken.String()
@@ -158,7 +158,7 @@ func tokenize(text string) []string {
 			tokens = append(tokens, token)
 		}
 	}
-	
+
 	// 对于中文，进一步分割成2-3字的词组
 	var finalTokens []string
 	for _, token := range tokens {
@@ -181,7 +181,7 @@ func tokenize(text string) []string {
 			finalTokens = append(finalTokens, token)
 		}
 	}
-	
+
 	return finalTokens
 }
 
@@ -221,14 +221,14 @@ func getRuneType(r rune) runeType {
 func isChinese(s string) bool {
 	chineseCount := 0
 	totalCount := 0
-	
+
 	for _, r := range s {
 		if unicode.Is(unicode.Han, r) {
 			chineseCount++
 		}
 		totalCount++
 	}
-	
+
 	return totalCount > 0 && float64(chineseCount)/float64(totalCount) > 0.5
 }
 
@@ -245,13 +245,13 @@ func filterCommonWords(tokens []string) []string {
 		"the": true, "a": true, "an": true, "and": true, "or": true,
 		"of": true, "to": true, "in": true, "for": true, "on": true,
 	}
-	
+
 	var filtered []string
 	for _, token := range tokens {
 		if !commonWords[strings.ToLower(token)] {
 			filtered = append(filtered, token)
 		}
 	}
-	
+
 	return filtered
 }

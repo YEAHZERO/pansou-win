@@ -63,3 +63,4 @@ logs/
 /tmp/
 __debug_bin
 **/go-build*/
+/.trae

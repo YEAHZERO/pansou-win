@@ -331,14 +331,14 @@ func (p *XdpanPlugin) extractDetailPageLinks(doc *goquery.Document) []model.Link
 	// 从JavaScript代码中提取百度网盘链接
 	doc.Find("script").Each(func(i int, s *goquery.Selection) {
 		scriptContent := s.Text()
-		
+
 		// 查找onDownload函数中的window.open链接
 		re := regexp.MustCompile(`window\.open\("([^"]*pan\.baidu\.com[^"]*)"`)
 		matches := re.FindStringSubmatch(scriptContent)
-		
+
 		if len(matches) > 1 {
 			baiduURL := matches[1]
-			
+
 			// 如果链接中没有密码参数，但我们从页面中提取到了密码，则添加密码参数
 			if !strings.Contains(baiduURL, "pwd=") && password != "" {
 				separator := "?"
@@ -347,13 +347,13 @@ func (p *XdpanPlugin) extractDetailPageLinks(doc *goquery.Document) []model.Link
 				}
 				baiduURL = fmt.Sprintf("%s%spwd=%s", baiduURL, separator, password)
 			}
-			
+
 			links = append(links, model.Link{
 				URL:      baiduURL,
 				Type:     "baidu",
 				Password: password,
 			})
-			
+
 			if DebugLog {
 				fmt.Printf("[xdpan] 提取到百度网盘链接: %s, 密码: %s\n", baiduURL, password)
 			}
