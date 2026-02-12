@@ -54,19 +54,19 @@ const (
 
 // 预编译的正则表达式（支持16种网盘链接）
 var (
-	quarkLinkRegex      = regexp.MustCompile(`https?://pan\.quark\.cn/s/[0-9a-zA-Z]{12,}`)
-	baiduLinkRegex      = regexp.MustCompile(`https?://pan\.baidu\.com/s/[0-9a-zA-Z_\-]+(?:\?pwd=[0-9a-zA-Z]+)?`)
-	aliyunLinkRegex     = regexp.MustCompile(`https?://(?:www\.)?(?:aliyundrive\.com|alipan\.com)/s/[0-9a-zA-Z]+`)
-	ucLinkRegex         = regexp.MustCompile(`https?://drive\.uc\.cn/s/[0-9a-zA-Z]+(?:\?[^"'\s]*)?`)
-	xunleiLinkRegex     = regexp.MustCompile(`https?://pan\.xunlei\.com/s/[0-9a-zA-Z_\-]+(?:\?pwd=[0-9a-zA-Z]+)?`)
-	tianyiLinkRegex     = regexp.MustCompile(`https?://cloud\.189\.cn/t/[0-9a-zA-Z]+`)
-	lanzouLinkRegex     = regexp.MustCompile(`https?://(?:www\.)?(?:lanzou[uixys]*|lan[zs]o[ux])\.(?:com|net|org)/[0-9a-zA-Z]+`)
-	link115Regex        = regexp.MustCompile(`https?://115\.com/s/[0-9a-zA-Z]+`)
-	mobileLinkRegex     = regexp.MustCompile(`https?://caiyun\.feixin\.10086\.cn/[0-9a-zA-Z]+`)
-	weiyunLinkRegex     = regexp.MustCompile(`https?://share\.weiyun\.com/[0-9a-zA-Z]+`)
-	jianguoyunLinkRegex = regexp.MustCompile(`https?://(?:www\.)?jianguoyun\.com/p/[0-9a-zA-Z]+`)
-	link123Regex        = regexp.MustCompile(`https?://123pan\.com/s/[0-9a-zA-Z]+`)
-	pikpakLinkRegex     = regexp.MustCompile(`https?://mypikpak\.com/s/[0-9a-zA-Z]+`)
+	quarkLinkRegex      = regexp.MustCompile(`(?:https?:)?//pan\.quark\.cn/s/[0-9a-zA-Z]{12,}`)
+	baiduLinkRegex      = regexp.MustCompile(`(?:https?:)?//pan\.baidu\.com/s/[0-9a-zA-Z_\-]+(?:\?pwd=[0-9a-zA-Z]+)?`)
+	aliyunLinkRegex     = regexp.MustCompile(`(?:https?:)?//(?:www\.)?(?:aliyundrive\.com|alipan\.com)/s/[0-9a-zA-Z]+`)
+	ucLinkRegex         = regexp.MustCompile(`(?:https?:)?//drive\.uc\.cn/s/[0-9a-zA-Z]+(?:\?[^"'\s]*)?`)
+	xunleiLinkRegex     = regexp.MustCompile(`(?:https?:)?//pan\.xunlei\.com/s/[0-9a-zA-Z_\-]+(?:\?pwd=[0-9a-zA-Z]+)?`)
+	tianyiLinkRegex     = regexp.MustCompile(`(?:https?:)?//cloud\.189\.cn/t/[0-9a-zA-Z]+`)
+	lanzouLinkRegex     = regexp.MustCompile(`(?:https?:)?//(?:www\.)?(?:lanzou[uixys]*|lan[zs]o[ux])\.(?:com|net|org)/[0-9a-zA-Z]+`)
+	link115Regex        = regexp.MustCompile(`(?:https?:)?//115\.com/s/[0-9a-zA-Z]+`)
+	mobileLinkRegex     = regexp.MustCompile(`(?:https?:)?//caiyun\.feixin\.10086\.cn/[0-9a-zA-Z]+`)
+	weiyunLinkRegex     = regexp.MustCompile(`(?:https?:)?//share\.weiyun\.com/[0-9a-zA-Z]+`)
+	jianguoyunLinkRegex = regexp.MustCompile(`(?:https?:)?//(?:www\.)?jianguoyun\.com/p/[0-9a-zA-Z]+`)
+	link123Regex        = regexp.MustCompile(`(?:https?:)?//123pan\.com/s/[0-9a-zA-Z]+`)
+	pikpakLinkRegex     = regexp.MustCompile(`(?:https?:)?//mypikpak\.com/s/[0-9a-zA-Z]+`)
 	magnetLinkRegex     = regexp.MustCompile(`magnet:\?xt=urn:btih:[0-9a-fA-F]{40}`)
 	ed2kLinkRegex       = regexp.MustCompile(`ed2k://\|file\|.+\|\d+\|[0-9a-fA-F]{32}\|/`)
 
@@ -1511,6 +1511,12 @@ func (p *PiozPlugin) ExtractLinksFromDocument(doc *goquery.Document) []model.Lin
 
 	// 处理链接
 	for _, urlStr := range filteredUrls {
+		// 处理以 // 开头的相对链接
+		if strings.HasPrefix(urlStr, "//") {
+			urlStr = "https:" + urlStr
+			fmt.Printf("[%s] 转换相对链接为绝对链接: %s\n", p.Name(), urlStr)
+		}
+
 		linkType := p.determineLinkType(urlStr)
 		if linkType == "" || linkType == "unknown" {
 			fmt.Printf("[%s] 跳过未知类型链接: %s\n", p.Name(), urlStr)
@@ -1880,7 +1886,7 @@ func (p *PiozPlugin) isValidNetworkDriveURL(urlStr string) bool {
 	if strings.Contains(urlStr, "javascript:") ||
 		strings.Contains(urlStr, "#") ||
 		urlStr == "" ||
-		(!strings.HasPrefix(urlStr, "http") && !strings.HasPrefix(urlStr, "magnet:") && !strings.HasPrefix(urlStr, "ed2k:")) {
+		(!strings.HasPrefix(urlStr, "http") && !strings.HasPrefix(urlStr, "//") && !strings.HasPrefix(urlStr, "magnet:") && !strings.HasPrefix(urlStr, "ed2k:")) {
 		return false
 	}
 
@@ -1946,6 +1952,11 @@ func (p *PiozPlugin) extractPasswordFromText(text string) string {
 
 // createLinkFromURL 从URL创建Link对象（使用对象池）
 func (p *PiozPlugin) createLinkFromURL(urlStr, password string) model.Link {
+	// ✅ 处理以 // 开头的相对链接
+	if strings.HasPrefix(urlStr, "//") {
+		urlStr = "https:" + urlStr
+	}
+
 	// ✅ 使用对象池减少内存分配
 	link := p.linkPool.Get().(*model.Link)
 
