@@ -54,7 +54,7 @@ const (
 
 // 预编译的正则表达式（支持16种网盘链接）
 var (
-	quarkLinkRegex      = regexp.MustCompile(`(?:https?:)?//pan\.quark\.cn/s/[0-9a-zA-Z]{12,}`)
+	quarkLinkRegex      = regexp.MustCompile(`(?:https?:)?//pan\.quark\.cn/(?:s|g)/[0-9a-zA-Z]{12,}`)
 	baiduLinkRegex      = regexp.MustCompile(`(?:https?:)?//pan\.baidu\.com/s/[0-9a-zA-Z_\-]+(?:\?pwd=[0-9a-zA-Z]+)?`)
 	aliyunLinkRegex     = regexp.MustCompile(`(?:https?:)?//(?:www\.)?(?:aliyundrive\.com|alipan\.com)/s/[0-9a-zA-Z]+`)
 	ucLinkRegex         = regexp.MustCompile(`(?:https?:)?//drive\.uc\.cn/s/[0-9a-zA-Z]+(?:\?[^"'\s]*)?`)
@@ -1447,6 +1447,21 @@ func (p *PiozPlugin) ExtractLinksFromDocument(doc *goquery.Document) []model.Lin
 				}
 			}
 		}
+		
+		// 检查元素的所有属性，寻找可能的链接
+		for _, attr := range s.Nodes[0].Attr {
+			if attr.Key != "href" && attr.Key != "onclick" && attr.Key != "data-href" {
+				attrUrls := p.extractAllURLs(attr.Val)
+				if len(attrUrls) > 0 {
+					for _, urlStr := range attrUrls {
+						if p.isValidNetworkDriveURL(urlStr) {
+							urls = append(urls, urlStr)
+							fmt.Printf("[%s] 从属性 %s 中提取到链接: %s\n", p.Name(), attr.Key, urlStr)
+						}
+					}
+				}
+			}
+		}
 	})
 
 	// 专门处理"打开网盘链接"按钮
@@ -1480,9 +1495,9 @@ func (p *PiozPlugin) ExtractLinksFromDocument(doc *goquery.Document) []model.Lin
 				}
 			}
 			
-			// 检查附近的隐藏元素
+			// 检查附近的元素，包括兄弟元素和父元素的子元素
 			s.NextAll().Each(func(j int, nextS *goquery.Selection) {
-				if j > 5 { // 只检查前5个兄弟元素
+				if j > 10 { // 检查前10个兄弟元素
 					return
 				}
 				nextText := strings.TrimSpace(nextS.Text())
@@ -1494,9 +1509,52 @@ func (p *PiozPlugin) ExtractLinksFromDocument(doc *goquery.Document) []model.Lin
 					}
 				}
 			})
+			
+			// 检查父元素的所有子元素
+			s.Parent().Find("*").Each(func(j int, childS *goquery.Selection) {
+				if j > 20 { // 检查前20个子元素
+					return
+				}
+				childText := strings.TrimSpace(childS.Text())
+				childUrls := p.extractAllURLs(childText)
+				for _, urlStr := range childUrls {
+					if p.isValidNetworkDriveURL(urlStr) {
+						urls = append(urls, urlStr)
+						fmt.Printf("[%s] 从父元素子元素中提取到链接: %s\n", p.Name(), urlStr)
+					}
+				}
+			})
 		}
 	})
 	fmt.Printf("[%s] 处理了 %d 个'打开网盘链接'按钮\n", p.Name(), openCount)
+
+	// 专门处理包含"分享链接"文本的元素
+	fmt.Printf("[%s] 尝试从'分享链接'文本中提取...\n", p.Name())
+	shareCount := 0
+	doc.Find("*").Each(func(i int, s *goquery.Selection) {
+		// 检查元素文本是否包含"分享链接"
+		elemText := strings.TrimSpace(s.Text())
+		if strings.Contains(elemText, "分享链接") {
+			shareCount++
+			fmt.Printf("[%s] 找到'分享链接'文本，检查其兄弟元素...\n", p.Name())
+			
+			// 检查兄弟元素
+			s.NextAll().Each(func(j int, nextS *goquery.Selection) {
+				if j > 5 { // 检查前5个兄弟元素
+					return
+				}
+				nextText := strings.TrimSpace(nextS.Text())
+				nextUrls := p.extractAllURLs(nextText)
+				for _, urlStr := range nextUrls {
+					if p.isValidNetworkDriveURL(urlStr) {
+						urls = append(urls, urlStr)
+						fmt.Printf("[%s] 从'分享链接'兄弟元素中提取到链接: %s\n", p.Name(), urlStr)
+					}
+				}
+			})
+		}
+	})
+	fmt.Printf("[%s] 处理了 %d 个'分享链接'文本\n", p.Name(), shareCount)
 
 	// 去重
 	uniqueUrls := make(map[string]bool)
