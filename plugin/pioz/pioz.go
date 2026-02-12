@@ -52,10 +52,6 @@ const (
 	RetryCount      = 2                       // 重试次数
 )
 
-func init() {
-	plugin.RegisterGlobalPlugin(NewPiozPlugin())
-}
-
 // 预编译的正则表达式（支持16种网盘链接）
 var (
 	quarkLinkRegex      = regexp.MustCompile(`https?://pan\.quark\.cn/s/[0-9a-zA-Z]{12,}`)
@@ -180,9 +176,15 @@ func NewPiozPlugin() *PiozPlugin {
 	}
 
 	randomIndex := time.Now().UnixNano() % int64(len(userAgents))
+	if randomIndex < 0 {
+		randomIndex = -randomIndex
+	}
+
+	// 创建基础插件，设置更长的响应超时时间
+	basePlugin := plugin.NewBaseAsyncPlugin("pioz", 30)
 
 	p := &PiozPlugin{
-		BaseAsyncPlugin:  plugin.NewBaseAsyncPlugin("pioz", 1),
+		BaseAsyncPlugin:  basePlugin,
 		optimizedClient:  client,
 		userAgents:       userAgents,
 		currentUserAgent: userAgents[randomIndex],
@@ -254,14 +256,19 @@ func (p *PiozPlugin) searchImpl(client *http.Client, keyword string, ext map[str
 	results, err := p.performDeepSearch(client, keyword)
 	if err == nil && len(results) > 0 {
 		fmt.Printf("[%s] ✅ 策略1成功：深度搜索API返回 %d 个结果\n", p.Name(), len(results))
-		enhancedResults := p.enhanceWithDetails(client, results)
-		fmt.Printf("[%s] 结果增强完成，增强后结果数: %d\n", p.Name(), len(enhancedResults))
-		searchCache.Store(cacheKey, cachedResponse{
-			results:   enhancedResults,
-			timestamp: time.Now(),
-		})
-		fmt.Printf("[%s] 结果已缓存，缓存键: %s\n", p.Name(), cacheKey)
-		return enhancedResults, nil
+		
+		// 启动后台任务增强结果，立即返回原始结果
+		go func() {
+			enhancedResults := p.enhanceWithDetails(client, results)
+			fmt.Printf("[%s] 后台结果增强完成，增强后结果数: %d\n", p.Name(), len(enhancedResults))
+			searchCache.Store(cacheKey, cachedResponse{
+				results:   enhancedResults,
+				timestamp: time.Now(),
+			})
+			fmt.Printf("[%s] 结果已缓存，缓存键: %s\n", p.Name(), cacheKey)
+		}()
+		
+		return results, nil
 	}
 	fmt.Printf("[%s] ⚠️ 策略1失败：%v\n", p.Name(), err)
 
@@ -271,14 +278,19 @@ func (p *PiozPlugin) searchImpl(client *http.Client, keyword string, ext map[str
 	results, err = p.performRegularSearch(client, keyword)
 	if err == nil && len(results) > 0 {
 		fmt.Printf("[%s] ✅ 策略2成功：HTML搜索返回 %d 个结果\n", p.Name(), len(results))
-		enhancedResults := p.enhanceWithDetails(client, results)
-		fmt.Printf("[%s] 结果增强完成，增强后结果数: %d\n", p.Name(), len(enhancedResults))
-		searchCache.Store(cacheKey, cachedResponse{
-			results:   enhancedResults,
-			timestamp: time.Now(),
-		})
-		fmt.Printf("[%s] 结果已缓存，缓存键: %s\n", p.Name(), cacheKey)
-		return enhancedResults, nil
+		
+		// 启动后台任务增强结果，立即返回原始结果
+		go func() {
+			enhancedResults := p.enhanceWithDetails(client, results)
+			fmt.Printf("[%s] 后台结果增强完成，增强后结果数: %d\n", p.Name(), len(enhancedResults))
+			searchCache.Store(cacheKey, cachedResponse{
+				results:   enhancedResults,
+				timestamp: time.Now(),
+			})
+			fmt.Printf("[%s] 结果已缓存，缓存键: %s\n", p.Name(), cacheKey)
+		}()
+		
+		return results, nil
 	}
 	fmt.Printf("[%s] ⚠️ 策略2失败：%v\n", p.Name(), err)
 
@@ -298,19 +310,24 @@ func (p *PiozPlugin) searchImpl(client *http.Client, keyword string, ext map[str
 			return results, nil
 		}
 
-		return nil, fmt.Errorf("[%s] 所有搜索策略都失败: %w", p.Name(), err)
+		// ✅ 关键修复：即使所有策略都失败，也返回空切片而不是nil
+		fmt.Printf("[%s] 所有搜索策略都失败，返回空结果\n", p.Name())
+		return []model.SearchResult{}, fmt.Errorf("[%s] 所有搜索策略都失败: %w", p.Name(), err)
 	}
 	fmt.Printf("[%s] ✅ 策略3成功：热搜榜返回 %d 个结果\n", p.Name(), len(results))
 
-	enhancedResults := p.enhanceWithDetails(client, results)
-	fmt.Printf("[%s] 结果增强完成，增强后结果数: %d\n", p.Name(), len(enhancedResults))
-	searchCache.Store(cacheKey, cachedResponse{
-		results:   enhancedResults,
-		timestamp: time.Now(),
-	})
-	fmt.Printf("[%s] 结果已缓存，缓存键: %s\n", p.Name(), cacheKey)
+	// 启动后台任务增强结果，立即返回原始结果
+	go func() {
+		enhancedResults := p.enhanceWithDetails(client, results)
+		fmt.Printf("[%s] 后台结果增强完成，增强后结果数: %d\n", p.Name(), len(enhancedResults))
+		searchCache.Store(cacheKey, cachedResponse{
+			results:   enhancedResults,
+			timestamp: time.Now(),
+		})
+		fmt.Printf("[%s] 结果已缓存，缓存键: %s\n", p.Name(), cacheKey)
+	}()
 
-	return enhancedResults, nil
+	return results, nil
 }
 
 // performDeepSearch 执行深度搜索API
@@ -1090,6 +1107,13 @@ func (p *PiozPlugin) enhanceWithDetails(client *http.Client, results []model.Sea
 
 	wg.Wait()
 	fmt.Printf("[%s] 增强完成，成功: %d/%d\n", p.Name(), len(enhancedResults), len(results))
+	
+	// ✅ 关键修复：如果增强结果为空，返回原始结果
+	if len(enhancedResults) == 0 {
+		fmt.Printf("[%s] 增强结果为空，返回原始结果: %d个\n", p.Name(), len(results))
+		return results
+	}
+	
 	return enhancedResults
 }
 
@@ -1358,28 +1382,138 @@ func (p *PiozPlugin) parseResourceDetailPage(client *http.Client, result model.S
 	}
 
 	// 提取链接
-	return p.extractLinksFromDocument(doc)
+	return p.ExtractLinksFromDocument(doc)
 }
 
-// extractLinksFromDocument 从文档中提取链接
-func (p *PiozPlugin) extractLinksFromDocument(doc *goquery.Document) []model.Link {
+// ExtractLinksFromDocument 从文档中提取链接（公共方法，用于测试）
+func (p *PiozPlugin) ExtractLinksFromDocument(doc *goquery.Document) []model.Link {
 	var links []model.Link
 	pageText := doc.Text()
 
-	// 提取所有网盘链接
-	urls := p.extractAllURLs(pageText)
+	fmt.Printf("[%s] 开始提取链接，页面文本长度: %d\n", p.Name(), len(pageText))
 
-	// 从链接元素中提取
+	// 尝试从页面文本中提取链接（使用更广泛的匹配）
+	fmt.Printf("[%s] 尝试从页面文本中提取链接...\n", p.Name())
+	urls := p.extractAllURLs(pageText)
+	fmt.Printf("[%s] 从文本中提取到 %d 个链接\n", p.Name(), len(urls))
+
+	// 尝试从链接元素中提取
+	fmt.Printf("[%s] 尝试从链接元素中提取...\n", p.Name())
+	linkCount := 0
 	doc.Find("a[href]").Each(func(i int, s *goquery.Selection) {
 		href, exists := s.Attr("href")
-		if exists && p.isValidNetworkDriveURL(href) {
-			urls = append(urls, href)
+		if exists {
+			linkCount++
+			if p.isValidNetworkDriveURL(href) {
+				urls = append(urls, href)
+				fmt.Printf("[%s] 找到有效链接: %s\n", p.Name(), href)
+			} else {
+				fmt.Printf("[%s] 找到链接但无效: %s\n", p.Name(), href)
+			}
+		}
+	})
+	fmt.Printf("[%s] 找到 %d 个链接元素\n", p.Name(), linkCount)
+
+	// 尝试从脚本标签中提取链接
+	fmt.Printf("[%s] 尝试从脚本标签中提取...\n", p.Name())
+	scriptCount := 0
+	doc.Find("script").Each(func(i int, s *goquery.Selection) {
+		scriptContent := strings.TrimSpace(s.Text())
+		if scriptContent != "" {
+			scriptCount++
+			// 尝试从脚本中提取链接
+			scriptUrls := p.extractAllURLs(scriptContent)
+			if len(scriptUrls) > 0 {
+				fmt.Printf("[%s] 从脚本中提取到 %d 个链接\n", p.Name(), len(scriptUrls))
+				urls = append(urls, scriptUrls...)
+			}
+		}
+	})
+	fmt.Printf("[%s] 处理了 %d 个脚本标签\n", p.Name(), scriptCount)
+
+	// 尝试从所有元素中提取（更广泛的搜索）
+	fmt.Printf("[%s] 尝试从所有元素中提取...\n", p.Name())
+	doc.Find("*").Each(func(i int, s *goquery.Selection) {
+		// 检查元素的文本内容
+		elemText := strings.TrimSpace(s.Text())
+		if elemText != "" {
+			elemUrls := p.extractAllURLs(elemText)
+			if len(elemUrls) > 0 {
+				for _, urlStr := range elemUrls {
+					if p.isValidNetworkDriveURL(urlStr) {
+						urls = append(urls, urlStr)
+						fmt.Printf("[%s] 从元素中提取到链接: %s\n", p.Name(), urlStr)
+					}
+				}
+			}
 		}
 	})
 
+	// 专门处理"打开网盘链接"按钮
+	fmt.Printf("[%s] 尝试从'打开网盘链接'按钮中提取...\n", p.Name())
+	openCount := 0
+	doc.Find("*").Each(func(i int, s *goquery.Selection) {
+		// 检查元素文本是否包含"打开网盘链接"
+		elemText := strings.TrimSpace(s.Text())
+		if strings.Contains(elemText, "打开网盘链接") {
+			openCount++
+			fmt.Printf("[%s] 找到'打开网盘链接'按钮，检查其属性...\n", p.Name())
+			
+			// 检查onclick属性
+			if onclick, exists := s.Attr("onclick"); exists {
+				fmt.Printf("[%s] 按钮有onclick属性: %s\n", p.Name(), onclick)
+				// 尝试从onclick中提取链接
+				onclickUrls := p.extractAllURLs(onclick)
+				for _, urlStr := range onclickUrls {
+					if p.isValidNetworkDriveURL(urlStr) {
+						urls = append(urls, urlStr)
+						fmt.Printf("[%s] 从onclick中提取到链接: %s\n", p.Name(), urlStr)
+					}
+				}
+			}
+			
+			// 检查data-href或其他数据属性
+			if dataHref, exists := s.Attr("data-href"); exists {
+				if p.isValidNetworkDriveURL(dataHref) {
+					urls = append(urls, dataHref)
+					fmt.Printf("[%s] 从data-href中提取到链接: %s\n", p.Name(), dataHref)
+				}
+			}
+			
+			// 检查附近的隐藏元素
+			s.NextAll().Each(func(j int, nextS *goquery.Selection) {
+				if j > 5 { // 只检查前5个兄弟元素
+					return
+				}
+				nextText := strings.TrimSpace(nextS.Text())
+				nextUrls := p.extractAllURLs(nextText)
+				for _, urlStr := range nextUrls {
+					if p.isValidNetworkDriveURL(urlStr) {
+						urls = append(urls, urlStr)
+						fmt.Printf("[%s] 从附近元素中提取到链接: %s\n", p.Name(), urlStr)
+					}
+				}
+			})
+		}
+	})
+	fmt.Printf("[%s] 处理了 %d 个'打开网盘链接'按钮\n", p.Name(), openCount)
+
+	// 去重
+	uniqueUrls := make(map[string]bool)
+	var filteredUrls []string
 	for _, urlStr := range urls {
+		if !uniqueUrls[urlStr] {
+			uniqueUrls[urlStr] = true
+			filteredUrls = append(filteredUrls, urlStr)
+		}
+	}
+	fmt.Printf("[%s] 去重后剩余 %d 个链接\n", p.Name(), len(filteredUrls))
+
+	// 处理链接
+	for _, urlStr := range filteredUrls {
 		linkType := p.determineLinkType(urlStr)
 		if linkType == "" || linkType == "unknown" {
+			fmt.Printf("[%s] 跳过未知类型链接: %s\n", p.Name(), urlStr)
 			continue
 		}
 
@@ -1398,9 +1532,11 @@ func (p *PiozPlugin) extractLinksFromDocument(doc *goquery.Document) []model.Lin
 		// 避免重复
 		if !p.containsLink(links, link) {
 			links = append(links, link)
+			fmt.Printf("[%s] 添加链接: %s (%s)，密码: %s\n", p.Name(), link.URL, link.Type, link.Password)
 		}
 	}
 
+	fmt.Printf("[%s] 最终提取到 %d 个有效链接\n", p.Name(), len(links))
 	return links
 }
 
@@ -1452,6 +1588,9 @@ func (p *PiozPlugin) applyAntiCrawlerDelay() {
 	requestCount := atomic.AddInt64(&requestCounter, 1)
 	if requestCount%5 == 0 {
 		randomIndex := time.Now().UnixNano() % int64(len(p.userAgents))
+		if randomIndex < 0 {
+			randomIndex = -randomIndex
+		}
 		p.currentUserAgent = p.userAgents[randomIndex]
 	}
 }
@@ -1460,6 +1599,9 @@ func (p *PiozPlugin) applyAntiCrawlerDelay() {
 func (p *PiozPlugin) setStealthHeaders(req *http.Request) {
 	// 随机切换User-Agent，避免固定模式
 	randomIndex := time.Now().UnixNano() % int64(len(p.userAgents))
+	if randomIndex < 0 {
+		randomIndex = -randomIndex
+	}
 	currentUA := p.userAgents[randomIndex]
 	req.Header.Set("User-Agent", currentUA)
 
@@ -1520,6 +1662,9 @@ func (p *PiozPlugin) getRandomUserAgent() string {
 func (p *PiozPlugin) setAPIHeaders(req *http.Request) {
 	// 随机切换User-Agent
 	randomIndex := time.Now().UnixNano() % int64(len(p.userAgents))
+	if randomIndex < 0 {
+		randomIndex = -randomIndex
+	}
 	currentUA := p.userAgents[randomIndex]
 	req.Header.Set("User-Agent", currentUA)
 
@@ -1699,6 +1844,9 @@ func (p *PiozPlugin) doRequestWithRetry(client *http.Client, req *http.Request) 
 
 			// 随机切换User-Agent
 			randomIndex := time.Now().UnixNano() % int64(len(p.userAgents))
+			if randomIndex < 0 {
+				randomIndex = -randomIndex
+			}
 			req.Header.Set("User-Agent", p.userAgents[randomIndex])
 		}
 

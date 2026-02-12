@@ -342,6 +342,16 @@ func InitAsyncPluginSystem() {
 
 // acquireWorkerSlot 尝试获取工作槽
 func acquireWorkerSlot() bool {
+	// 确保异步插件系统已初始化
+	if !initialized {
+		initAsyncPlugin()
+	}
+
+	// 检查 backgroundWorkerPool 是否为 nil
+	if backgroundWorkerPool == nil {
+		return false
+	}
+
 	// 获取最大任务数
 	maxTasks := int32(defaultMaxBackgroundTasks)
 	if config.AppConfig != nil {
@@ -365,6 +375,11 @@ func acquireWorkerSlot() bool {
 
 // releaseWorkerSlot 释放工作槽
 func releaseWorkerSlot() {
+	// 确保异步插件系统已初始化
+	if !initialized || backgroundWorkerPool == nil {
+		return
+	}
+	
 	<-backgroundWorkerPool
 	atomic.AddInt32(&backgroundTasksCount, -1)
 }
