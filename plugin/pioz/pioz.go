@@ -54,7 +54,7 @@ const (
 
 // 预编译的正则表达式（支持16种网盘链接）
 var (
-	quarkLinkRegex      = regexp.MustCompile(`(?:https?:)?//pan\.quark\.cn/(?:s|g)/[0-9a-zA-Z]+`)
+	quarkLinkRegex      = regexp.MustCompile(`(?:https?:)?//pan\.quark\.cn/s/[0-9a-zA-Z]+`)
 	baiduLinkRegex      = regexp.MustCompile(`(?:https?:)?//pan\.baidu\.com/s/[0-9a-zA-Z_\-]+(?:\?pwd=[0-9a-zA-Z]+)?`)
 	aliyunLinkRegex     = regexp.MustCompile(`(?:https?:)?//(?:www\.)?(?:aliyundrive\.com|alipan\.com)/s/[0-9a-zA-Z]+`)
 	ucLinkRegex         = regexp.MustCompile(`(?:https?:)?//drive\.uc\.cn/s/[0-9a-zA-Z]+(?:\?[^"'\s]*)?`)
@@ -78,7 +78,7 @@ var (
 	detailIDRegex = regexp.MustCompile(`/detail/(\d+)`)
 
 	// 反爬检测正则
-	antiCrawlerRegex = regexp.MustCompile(`禁止使用开发者工具|偷样式死全家|反爬虫|防爬`)
+	antiCrawlerRegex = regexp.MustCompile(`禁止使用开发者工具|偷|反爬虫|防爬`)
 )
 
 // 缓存和会话管理
@@ -261,9 +261,40 @@ func (p *PiozPlugin) searchImpl(client *http.Client, keyword string, ext map[str
 	if err == nil && len(results) > 0 {
 		fmt.Printf("[%s] ✅ 策略1成功：深度搜索API返回 %d 个结果\n", p.Name(), len(results))
 
-		// 同步执行结果增强，确保返回真正的网盘链接
-		enhancedResults := p.enhanceWithDetails(client, results)
-		fmt.Printf("[%s] 结果增强完成，增强后结果数: %d\n", p.Name(), len(enhancedResults))
+		// 检查结果是否已经包含链接
+		hasLinks := false
+		for _, result := range results {
+			if len(result.Links) > 0 {
+				hasLinks = true
+				break
+			}
+		}
+
+		// 如果结果已经包含链接，就跳过增强步骤，但需要过滤无效链接
+		var enhancedResults []model.SearchResult
+		if hasLinks {
+			fmt.Printf("[%s] 结果已包含链接，跳过增强步骤，但过滤无效链接\n", p.Name())
+			// 过滤掉无效的夸克网盘链接（只保留/s/链接）
+			for i := range results {
+				var validLinks []model.Link
+				for _, link := range results[i].Links {
+					if link.Type == "quark" && quarkLinkRegex.MatchString(link.URL) {
+						validLinks = append(validLinks, link)
+						fmt.Printf("[%s] 保留有效的夸克网盘链接: %s\n", p.Name(), link.URL)
+					} else if link.Type != "quark" {
+						validLinks = append(validLinks, link)
+					} else {
+						fmt.Printf("[%s] 过滤掉无效的夸克网盘链接: %s\n", p.Name(), link.URL)
+					}
+				}
+				results[i].Links = validLinks
+			}
+			enhancedResults = results
+		} else {
+			// 同步执行结果增强，确保返回真正的网盘链接
+			enhancedResults = p.enhanceWithDetails(client, results)
+			fmt.Printf("[%s] 结果增强完成，增强后结果数: %d\n", p.Name(), len(enhancedResults))
+		}
 
 		// 缓存增强后的结果
 		searchCache.Store(cacheKey, cachedResponse{
@@ -282,9 +313,40 @@ func (p *PiozPlugin) searchImpl(client *http.Client, keyword string, ext map[str
 	if err == nil && len(results) > 0 {
 		fmt.Printf("[%s] ✅ 策略2成功：HTML搜索返回 %d 个结果\n", p.Name(), len(results))
 
-		// 同步执行结果增强，确保返回真正的网盘链接
-		enhancedResults := p.enhanceWithDetails(client, results)
-		fmt.Printf("[%s] 结果增强完成，增强后结果数: %d\n", p.Name(), len(enhancedResults))
+		// 检查结果是否已经包含链接
+		hasLinks := false
+		for _, result := range results {
+			if len(result.Links) > 0 {
+				hasLinks = true
+				break
+			}
+		}
+
+		// 如果结果已经包含链接，就跳过增强步骤，但需要过滤无效链接
+		var enhancedResults []model.SearchResult
+		if hasLinks {
+			fmt.Printf("[%s] 结果已包含链接，跳过增强步骤，但过滤无效链接\n", p.Name())
+			// 过滤掉无效的夸克网盘链接（只保留/s/链接）
+			for i := range results {
+				var validLinks []model.Link
+				for _, link := range results[i].Links {
+					if link.Type == "quark" && quarkLinkRegex.MatchString(link.URL) {
+						validLinks = append(validLinks, link)
+						fmt.Printf("[%s] 保留有效的夸克网盘链接: %s\n", p.Name(), link.URL)
+					} else if link.Type != "quark" {
+						validLinks = append(validLinks, link)
+					} else {
+						fmt.Printf("[%s] 过滤掉无效的夸克网盘链接: %s\n", p.Name(), link.URL)
+					}
+				}
+				results[i].Links = validLinks
+			}
+			enhancedResults = results
+		} else {
+			// 同步执行结果增强，确保返回真正的网盘链接
+			enhancedResults = p.enhanceWithDetails(client, results)
+			fmt.Printf("[%s] 结果增强完成，增强后结果数: %d\n", p.Name(), len(enhancedResults))
+		}
 
 		// 缓存增强后的结果
 		searchCache.Store(cacheKey, cachedResponse{
@@ -303,9 +365,40 @@ func (p *PiozPlugin) searchImpl(client *http.Client, keyword string, ext map[str
 	if err == nil && len(results) > 0 {
 		fmt.Printf("[%s] ✅ 策略3成功：热搜榜返回 %d 个结果\n", p.Name(), len(results))
 
-		// 同步执行结果增强，确保返回真正的网盘链接
-		enhancedResults := p.enhanceWithDetails(client, results)
-		fmt.Printf("[%s] 结果增强完成，增强后结果数: %d\n", p.Name(), len(enhancedResults))
+		// 检查结果是否已经包含链接
+		hasLinks := false
+		for _, result := range results {
+			if len(result.Links) > 0 {
+				hasLinks = true
+				break
+			}
+		}
+
+		// 如果结果已经包含链接，就跳过增强步骤，但需要过滤无效链接
+		var enhancedResults []model.SearchResult
+		if hasLinks {
+			fmt.Printf("[%s] 结果已包含链接，跳过增强步骤，但过滤无效链接\n", p.Name())
+			// 过滤掉无效的夸克网盘链接（只保留/s/链接）
+			for i := range results {
+				var validLinks []model.Link
+				for _, link := range results[i].Links {
+					if link.Type == "quark" && quarkLinkRegex.MatchString(link.URL) {
+						validLinks = append(validLinks, link)
+						fmt.Printf("[%s] 保留有效的夸克网盘链接: %s\n", p.Name(), link.URL)
+					} else if link.Type != "quark" {
+						validLinks = append(validLinks, link)
+					} else {
+						fmt.Printf("[%s] 过滤掉无效的夸克网盘链接: %s\n", p.Name(), link.URL)
+					}
+				}
+				results[i].Links = validLinks
+			}
+			enhancedResults = results
+		} else {
+			// 同步执行结果增强，确保返回真正的网盘链接
+			enhancedResults = p.enhanceWithDetails(client, results)
+			fmt.Printf("[%s] 结果增强完成，增强后结果数: %d\n", p.Name(), len(enhancedResults))
+		}
 
 		// 缓存增强后的结果
 		searchCache.Store(cacheKey, cachedResponse{
@@ -1191,73 +1284,58 @@ func (p *PiozPlugin) enhanceWithDetails(client *http.Client, results []model.Sea
 		return results
 	}
 
-	var enhancedResults []model.SearchResult
-	var mu sync.Mutex
-	var wg sync.WaitGroup
+	// 只处理第一个搜索结果
+	fmt.Printf("[%s] 只处理第一个搜索结果（共%d个）\n", p.Name(), len(results))
+	firstResult := results[0]
 
-	// ✅ 根据结果数量动态调整并发度
-	concurrency := MaxConcurrency
-	if len(results) < 5 {
-		concurrency = 2 // 结果少时降低并发
-	} else if len(results) > 20 {
-		concurrency = 12 // 结果多时适当提高并发
-	}
-
-	semaphore := make(chan struct{}, concurrency)
-
-	fmt.Printf("[%s] 开始增强 %d 个结果，并发度: %d\n", p.Name(), len(results), concurrency)
-
-	for _, result := range results {
-		wg.Add(1)
-
-		go func(r model.SearchResult) {
-			defer wg.Done()
-
-			semaphore <- struct{}{}
-			defer func() { <-semaphore }()
-
-			// 应用反爬延迟
-			p.applyAntiCrawlerDelay()
-
-			// 检查缓存
-			if cached, ok := detailCache.Load(r.UniqueID); ok {
-				if cachedResult, ok := cached.(model.SearchResult); ok {
-					mu.Lock()
-					enhancedResults = append(enhancedResults, cachedResult)
-					mu.Unlock()
-					return
+	// 检查缓存
+	if cached, ok := detailCache.Load(firstResult.UniqueID); ok {
+		if cachedResult, ok := cached.(model.SearchResult); ok {
+			fmt.Printf("[%s] 命中缓存: %s\n", p.Name(), firstResult.Title)
+			// 过滤掉无效的夸克网盘链接（只保留/s/链接）
+			var validLinks []model.Link
+			for _, link := range cachedResult.Links {
+				if link.Type == "quark" && quarkLinkRegex.MatchString(link.URL) {
+					validLinks = append(validLinks, link)
+				} else if link.Type != "quark" {
+					validLinks = append(validLinks, link)
 				}
 			}
-
-			// 获取详情信息
-			links := p.fetchResourceInfo(client, r)
-			r.Links = links
-
-			// 如果有链接，记录日志
-			if len(links) > 0 {
-				fmt.Printf("[%s] 成功获取资源链接: %s -> %d个链接\n",
-					p.Name(), r.Title, len(links))
-			}
-
-			// 缓存结果
-			detailCache.Store(r.UniqueID, r)
-
-			mu.Lock()
-			enhancedResults = append(enhancedResults, r)
-			mu.Unlock()
-		}(result)
+			cachedResult.Links = validLinks
+			return []model.SearchResult{cachedResult}
+		}
 	}
 
-	wg.Wait()
-	fmt.Printf("[%s] 增强完成，成功: %d/%d\n", p.Name(), len(enhancedResults), len(results))
+	// 应用反爬延迟
+	p.applyAntiCrawlerDelay()
 
-	// ✅ 关键修复：如果增强结果为空，返回原始结果
-	if len(enhancedResults) == 0 {
-		fmt.Printf("[%s] 增强结果为空，返回原始结果: %d个\n", p.Name(), len(results))
-		return results
+	// 获取详情信息
+	links := p.fetchResourceInfo(client, firstResult)
+
+	// 过滤掉无效的夸克网盘链接（只保留/s/链接）
+	var validLinks []model.Link
+	for _, link := range links {
+		if link.Type == "quark" && quarkLinkRegex.MatchString(link.URL) {
+			validLinks = append(validLinks, link)
+			fmt.Printf("[%s] 保留有效的夸克网盘链接: %s\n", p.Name(), link.URL)
+		} else if link.Type != "quark" {
+			validLinks = append(validLinks, link)
+		} else {
+			fmt.Printf("[%s] 过滤掉无效的夸克网盘链接: %s\n", p.Name(), link.URL)
+		}
+	}
+	firstResult.Links = validLinks
+
+	// 如果有链接，记录日志
+	if len(validLinks) > 0 {
+		fmt.Printf("[%s] 成功获取资源链接: %s -> %d个链接\n",
+			p.Name(), firstResult.Title, len(validLinks))
 	}
 
-	return enhancedResults
+	// 缓存结果
+	detailCache.Store(firstResult.UniqueID, firstResult)
+
+	return []model.SearchResult{firstResult}
 }
 
 // fetchResourceInfo 获取资源信息
@@ -1332,8 +1410,17 @@ func (p *PiozPlugin) tryTransferAPI(client *http.Client, result model.SearchResu
 	cacheKey := fmt.Sprintf("pioz:transfer:%s", resourceID)
 	if cached, ok := transferCache.Load(cacheKey); ok {
 		if links, ok := cached.([]model.Link); ok && len(links) > 0 {
-			fmt.Printf("[%s] Transfer缓存命中: resourceID=%s\n", p.Name(), resourceID)
-			return links
+			// 检查缓存的链接是否为有效的夸克网盘链接（只保留/s/链接）
+			var validLinks []model.Link
+			for _, link := range links {
+				if link.Type == "quark" && quarkLinkRegex.MatchString(link.URL) {
+					validLinks = append(validLinks, link)
+				}
+			}
+			if len(validLinks) > 0 {
+				fmt.Printf("[%s] Transfer缓存命中: resourceID=%s\n", p.Name(), resourceID)
+				return validLinks
+			}
 		}
 	}
 
@@ -1387,6 +1474,12 @@ func (p *PiozPlugin) tryTransferAPI(client *http.Client, result model.SearchResu
 	}
 
 	if !transferResp.Success || transferResp.Data.URL == "" {
+		return nil
+	}
+
+	// 检查是否为有效的夸克网盘链接（只保留/s/链接）
+	if strings.Contains(transferResp.Data.URL, "pan.quark.cn") && !quarkLinkRegex.MatchString(transferResp.Data.URL) {
+		fmt.Printf("[%s] 跳过无效的夸克网盘链接: %s\n", p.Name(), transferResp.Data.URL)
 		return nil
 	}
 
