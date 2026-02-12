@@ -270,6 +270,15 @@ func (p *PiozPlugin) searchImpl(client *http.Client, keyword string, ext map[str
 	results, err = p.extractFromHotSearch(client, keyword)
 	if err != nil {
 		fmt.Printf("[%s] ❌ 策略3失败：%v\n", p.Name(), err)
+		
+		// ⭐ 策略4：简化搜索（最后的兜底方案）
+		fmt.Printf("[%s] 尝试策略4：简化搜索（直接返回搜索页链接）\n", p.Name())
+		results = p.createFallbackResult(keyword)
+		if len(results) > 0 {
+			fmt.Printf("[%s] ✅ 策略4成功：返回搜索页链接\n", p.Name())
+			return results, nil
+		}
+		
 		return nil, fmt.Errorf("[%s] 所有搜索策略都失败: %w", p.Name(), err)
 	}
 	fmt.Printf("[%s] ✅ 策略3成功：热搜榜返回 %d 个结果\n", p.Name(), len(results))
@@ -473,6 +482,7 @@ func (p *PiozPlugin) performRegularSearch(client *http.Client, keyword string) (
 	}
 	
 	if resp.StatusCode != 200 {
+		fmt.Printf("[%s] ⚠️ HTML搜索返回状态码: %d\n", p.Name(), resp.StatusCode)
 		return nil, fmt.Errorf("搜索页面返回状态码: %d", resp.StatusCode)
 	}
 	
@@ -481,7 +491,29 @@ func (p *PiozPlugin) performRegularSearch(client *http.Client, keyword string) (
 		return nil, err
 	}
 	
+	// ⭐ 添加调试：输出页面结构信息
+	fmt.Printf("[%s] 开始解析HTML，尝试多种选择器...\n", p.Name())
+	
 	var results []model.SearchResult
+	
+	// 尝试多种可能的选择器
+	selectors := []string{
+		".file-item",
+		".result-item", 
+		".search-item",
+		".text-gray-100",
+		"[class*='item']",
+		"[class*='result']",
+		"[class*='search']",
+	}
+	
+	for _, selector := range selectors {
+		count := doc.Find(selector).Length()
+		if count > 0 {
+			fmt.Printf("[%s] 找到选择器 '%s': %d 个元素\n", p.Name(), selector, count)
+		}
+	}
+	
 	doc.Find(".file-item, .result-item, .search-item, .text-gray-100").Each(func(i int, s *goquery.Selection) {
 		result := p.parseSearchItem(s, keyword, i)
 		if result.UniqueID != "" {
@@ -490,6 +522,12 @@ func (p *PiozPlugin) performRegularSearch(client *http.Client, keyword string) (
 	})
 	
 	if len(results) == 0 {
+		fmt.Printf("[%s] 主选择器未找到结果，尝试备用方案：查找所有详情页链接\n", p.Name())
+		
+		// 统计找到的链接数
+		linkCount := doc.Find("a[href*='/detail/']").Length()
+		fmt.Printf("[%s] 找到 %d 个详情页链接\n", p.Name(), linkCount)
+		
 		doc.Find("a[href*='/detail/']").Each(func(i int, a *goquery.Selection) {
 			result := p.parseDetailLink(a, i)
 			if result.UniqueID != "" {
@@ -499,6 +537,8 @@ func (p *PiozPlugin) performRegularSearch(client *http.Client, keyword string) (
 	}
 	
 	if len(results) == 0 {
+		fmt.Printf("[%s] ❌ HTML解析失败：所有选择器都未找到结果\n", p.Name())
+		fmt.Printf("[%s] 建议：使用浏览器访问 %s 检查页面结构\n", p.Name(), searchURL)
 		return nil, fmt.Errorf("未找到搜索结果")
 	}
 	
@@ -575,6 +615,27 @@ func (p *PiozPlugin) extractFromHotSearch(client *http.Client, keyword string) (
 	
 	fmt.Printf("[%s] 热搜榜找到 %d 个匹配结果\n", p.Name(), len(results))
 	return results, nil
+}
+
+// createFallbackResult 创建兜底结果（返回搜索页链接）
+func (p *PiozPlugin) createFallbackResult(keyword string) []model.SearchResult {
+	searchURL := fmt.Sprintf("%s/search?q=%s", SiteBaseURL, url.QueryEscape(keyword))
+	
+	result := model.SearchResult{
+		UniqueID: fmt.Sprintf("%s-fallback-%d", p.Name(), time.Now().UnixNano()),
+		Title:    fmt.Sprintf("在 Pioz 搜索：%s", keyword),
+		Content:  fmt.Sprintf("点击链接在 Pioz 网站搜索 '%s'", keyword),
+		Datetime: time.Now(),
+		Links: []model.Link{
+			{
+				Type: "detail",
+				URL:  searchURL,
+			},
+		},
+		Channel: "",
+	}
+	
+	return []model.SearchResult{result}
 }
 
 // parseSearchItem 解析单个搜索结果项
