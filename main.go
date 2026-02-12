@@ -26,7 +26,6 @@ import (
 	// 以下是插件的空导入，用于触发各插件的init函数，实现自动注册
 	// 添加新插件时，只需在此处添加对应的导入语句即可
 	_ "pansou/plugin/pioz"
-	_ "pansou/plugin/pioz2"
 	// 备用插件（已禁用，需要时取消注释）
 	// _ "pansou/plugin/pansearch"
 	// _ "pansou/plugin/wanou"

@@ -1,4 +1,4 @@
-package pioz
+﻿package pioz
 
 import (
 	"context"
@@ -47,9 +47,8 @@ func init() {
 	plugin.RegisterGlobalPlugin(NewPiozPlugin())
 }
 
-// 预编译的正则表达式
+// 预编译的正则表达式（支持16种网盘链接）
 var (
-	// 网盘链接正则表达式（支持16种类型）
 	quarkLinkRegex      = regexp.MustCompile(`https?://pan\.quark\.cn/s/[0-9a-zA-Z]{12,}`)
 	baiduLinkRegex      = regexp.MustCompile(`https?://pan\.baidu\.com/s/[0-9a-zA-Z_\-]+(?:\?pwd=[0-9a-zA-Z]+)?`)
 	aliyunLinkRegex     = regexp.MustCompile(`https?://(?:www\.)?(?:aliyundrive\.com|alipan\.com)/s/[0-9a-zA-Z]+`)
@@ -77,11 +76,41 @@ var (
 	antiCrawlerRegex = regexp.MustCompile(`禁止使用开发者工具|偷样式死全家|反爬虫|防爬`)
 )
 
-// API响应结构
+// 缓存和会话管理
+var (
+	searchCache     = sync.Map{}
+	detailCache     = sync.Map{}
+	transferCache   = sync.Map{}
+	sessionCookies  []*http.Cookie
+	sessionMutex    sync.RWMutex
+	lastRequestTime time.Time
+	requestCounter  int64
+)
+
+// 性能统计
+var (
+	searchRequests    int64 = 0
+	detailRequests    int64 = 0
+	cacheHits         int64 = 0
+	cacheMisses       int64 = 0
+	antiCrawlerBlocks int64 = 0
+	totalSearchTime   int64 = 0
+	totalDetailTime   int64 = 0
+)
+
+// 缓存响应结构
+type cachedResponse struct {
+	results   []model.SearchResult
+	timestamp time.Time
+}
+
+// DeepSearchResponse API响应结构
 type DeepSearchResponse struct {
-	Code    int `json:"code"`
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+	Total   int    `json:"total"`
 	Results []struct {
-		ID         string `json:"id"`          // 修复：改为 string 类型
+		ID         string `json:"id"`
 		Title      string `json:"title"`
 		CloudType  string `json:"cloud_type"`
 		Datetime   string `json:"datetime"`
@@ -90,52 +119,26 @@ type DeepSearchResponse struct {
 		CreateTime string `json:"create_time"`
 		ViewURL    string `json:"view_url"`
 	} `json:"results"`
-	Total   int    `json:"total"`
-	Message string `json:"message"`
 }
 
-type TransferResponse struct {
-	Success bool `json:"success"`
-	Data    struct {
-		URL      string `json:"url"`
-		Password string `json:"password"`
-		Type     string `json:"type"`
-	} `json:"data"`
-	Error string `json:"error"`
-}
-
-// 缓存结构
-var (
-	searchCache   = sync.Map{} // 关键词 -> 搜索结果缓存
-	detailCache   = sync.Map{} // 资源ID -> 详情缓存
-	transferCache = sync.Map{} // 资源ID -> transfer结果缓存
-	sessionCookies []*http.Cookie
-	sessionMutex    sync.RWMutex
-	lastRequestTime time.Time
-	requestCounter  int64
-)
-
-// 性能统计
-var (
-	searchRequests     int64 = 0
-	detailRequests     int64 = 0
-	cacheHits          int64 = 0
-	cacheMisses        int64 = 0
-	antiCrawlerBlocks  int64 = 0
-	totalSearchTime    int64 = 0
-	totalDetailTime    int64 = 0
-)
-
-// PiozAsyncPlugin Pioz异步插件
-type PiozAsyncPlugin struct {
+// PiozPlugin Pioz 插件结构
+type PiozPlugin struct {
 	*plugin.BaseAsyncPlugin
-	optimizedClient    *http.Client
-	userAgents         []string
-	currentUserAgent   string
+	optimizedClient  *http.Client
+	userAgents       []string
+	currentUserAgent string
+	// ✅ 添加对象池减少内存分配
+	linkPool sync.Pool
 }
 
-// createOptimizedHTTPClient 创建优化的HTTP客户端
-func createOptimizedHTTPClient() *http.Client {
+// init 注册插件
+func init() {
+	plugin.RegisterGlobalPlugin(NewPiozPlugin())
+}
+
+// NewPiozPlugin 创建新的 Pioz 插件实例
+func NewPiozPlugin() *PiozPlugin {
+	// 创建优化的 HTTP 客户端
 	transport := &http.Transport{
 		MaxIdleConns:        MaxIdleConns,
 		MaxIdleConnsPerHost: MaxIdleConnsPerHost,
@@ -144,17 +147,19 @@ func createOptimizedHTTPClient() *http.Client {
 		DisableKeepAlives:   false,
 	}
 	
-	return &http.Client{
+	client := &http.Client{
 		Transport: transport,
 		Timeout:   DefaultTimeout,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
+			// ✅ 限制重定向次数
+			if len(via) >= 10 {
+				return http.ErrUseLastResponse
+			}
+			return nil
 		},
 	}
-}
-
-// NewPiozPlugin 创建新的Pioz异步插件
-func NewPiozPlugin() *PiozAsyncPlugin {
+	
+	// 多个 User-Agent 用于随机切换
 	userAgents := []string{
 		"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
 		"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
@@ -165,20 +170,27 @@ func NewPiozPlugin() *PiozAsyncPlugin {
 		"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
 	}
 	
-	// 随机选择初始User-Agent
 	randomIndex := time.Now().UnixNano() % int64(len(userAgents))
 	
-	return &PiozAsyncPlugin{
+	p := &PiozPlugin{
 		BaseAsyncPlugin:  plugin.NewBaseAsyncPlugin("pioz", 1),
-		optimizedClient:  createOptimizedHTTPClient(),
+		optimizedClient:  client,
 		userAgents:       userAgents,
 		currentUserAgent: userAgents[randomIndex],
 	}
+	
+	// ✅ 初始化对象池
+	p.linkPool = sync.Pool{
+		New: func() interface{} {
+			return &model.Link{}
+		},
+	}
+	
+	return p
 }
 
 // Search 同步搜索接口
-func (p *PiozAsyncPlugin) Search(keyword string, ext map[string]interface{}) ([]model.SearchResult, error) {
-	fmt.Printf("[%s] Search 被调用，keyword='%s'\n", p.Name(), keyword)
+func (p *PiozPlugin) Search(keyword string, ext map[string]interface{}) ([]model.SearchResult, error) {
 	result, err := p.SearchWithResult(keyword, ext)
 	if err != nil {
 		return nil, err
@@ -187,14 +199,13 @@ func (p *PiozAsyncPlugin) Search(keyword string, ext map[string]interface{}) ([]
 }
 
 // SearchWithResult 带结果统计的搜索接口
-func (p *PiozAsyncPlugin) SearchWithResult(keyword string, ext map[string]interface{}) (model.PluginSearchResult, error) {
-	fmt.Printf("[%s] SearchWithResult 被调用，keyword='%s'\n", p.Name(), keyword)
+func (p *PiozPlugin) SearchWithResult(keyword string, ext map[string]interface{}) (model.PluginSearchResult, error) {
 	return p.AsyncSearchWithResult(keyword, p.searchImpl, p.MainCacheKey, ext)
 }
 
-// searchImpl 实现具体的搜索逻辑
-func (p *PiozAsyncPlugin) searchImpl(client *http.Client, keyword string, ext map[string]interface{}) ([]model.SearchResult, error) {
-	fmt.Printf("[%s] searchImpl 被调用，keyword='%s'\n", p.Name(), keyword)
+// searchImpl 实现搜索逻辑（多策略搜索）
+func (p *PiozPlugin) searchImpl(client *http.Client, keyword string, ext map[string]interface{}) ([]model.SearchResult, error) {
+	fmt.Printf("[%s] 开始搜索，keyword='%s'\n", p.Name(), keyword)
 	
 	// 性能统计
 	start := time.Now()
@@ -203,28 +214,29 @@ func (p *PiozAsyncPlugin) searchImpl(client *http.Client, keyword string, ext ma
 		duration := time.Since(start).Nanoseconds()
 		atomic.AddInt64(&totalSearchTime, duration)
 	}()
-
+	
 	// 检查缓存
 	cacheKey := fmt.Sprintf("%s:%s", p.Name(), keyword)
 	if cached, ok := searchCache.Load(cacheKey); ok {
 		if cachedResp, ok := cached.(cachedResponse); ok {
 			if time.Since(cachedResp.timestamp) < CacheTTL {
 				atomic.AddInt64(&cacheHits, 1)
+				fmt.Printf("[%s] 命中缓存，结果数: %d\n", p.Name(), len(cachedResp.results))
 				return cachedResp.results, nil
 			}
 		}
 	}
 	atomic.AddInt64(&cacheMisses, 1)
-
+	
 	// 使用优化的客户端
 	if p.optimizedClient != nil {
 		client = p.optimizedClient
 	}
-
+	
 	// 应用反爬延迟
 	p.applyAntiCrawlerDelay()
-
-	// 策略1：深度搜索API（首选）
+	
+	// 策略1：深度搜索 API（首选）
 	results, err := p.performDeepSearch(client, keyword)
 	if err == nil && len(results) > 0 {
 		enhancedResults := p.enhanceWithDetails(client, results)
@@ -232,10 +244,9 @@ func (p *PiozAsyncPlugin) searchImpl(client *http.Client, keyword string, ext ma
 			results:   enhancedResults,
 			timestamp: time.Now(),
 		})
-		// Pioz API 已经根据关键词过滤，不需要再次过滤
 		return enhancedResults, nil
 	}
-
+	
 	// 策略2：普通搜索页面（备用）
 	p.applyAntiCrawlerDelay()
 	results, err = p.performRegularSearch(client, keyword)
@@ -245,47 +256,48 @@ func (p *PiozAsyncPlugin) searchImpl(client *http.Client, keyword string, ext ma
 			results:   enhancedResults,
 			timestamp: time.Now(),
 		})
-		// 搜索页面已经根据关键词过滤，不需要再次过滤
 		return enhancedResults, nil
 	}
-
+	
 	// 策略3：首页热搜榜匹配（最后手段）
 	p.applyAntiCrawlerDelay()
 	results, err = p.extractFromHotSearch(client, keyword)
 	if err != nil {
 		return nil, fmt.Errorf("[%s] 所有搜索策略都失败: %w", p.Name(), err)
 	}
-
+	
 	enhancedResults := p.enhanceWithDetails(client, results)
 	searchCache.Store(cacheKey, cachedResponse{
 		results:   enhancedResults,
 		timestamp: time.Now(),
 	})
 	
-	// 热搜榜已经根据关键词匹配，不需要再次过滤
 	return enhancedResults, nil
 }
 
 // performDeepSearch 执行深度搜索API
-func (p *PiozAsyncPlugin) performDeepSearch(client *http.Client, keyword string) ([]model.SearchResult, error) {
+func (p *PiozPlugin) performDeepSearch(client *http.Client, keyword string) ([]model.SearchResult, error) {
+	// 构建API URL
 	apiURL := fmt.Sprintf("%s/deep-search?kw=%s", APIBaseURL, url.QueryEscape(keyword))
-	
 	fmt.Printf("[%s] 调用API: %s\n", p.Name(), apiURL)
 	
-	req, err := http.NewRequest("GET", apiURL, nil)
+	// 创建请求
+	ctx, cancel := context.WithTimeout(context.Background(), DefaultTimeout)
+	defer cancel()
+	
+	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
 	if err != nil {
-		fmt.Printf("[%s] 创建请求失败: %v\n", p.Name(), err)
-		return nil, err
+		return nil, fmt.Errorf("创建请求失败: %w", err)
 	}
 	
+	// 设置API请求头
 	p.setAPIHeaders(req)
 	p.addSessionCookies(req)
 	
-	// 执行请求（带重试）
+	// 发送请求（带重试）
 	resp, err := p.doRequestWithRetry(client, req)
 	if err != nil {
-		fmt.Printf("[%s] 请求失败: %v\n", p.Name(), err)
-		return nil, err
+		return nil, fmt.Errorf("请求失败: %w", err)
 	}
 	defer resp.Body.Close()
 	
@@ -294,7 +306,6 @@ func (p *PiozAsyncPlugin) performDeepSearch(client *http.Client, keyword string)
 	// 检查反爬
 	if p.checkAntiCrawlerResponse(resp) {
 		atomic.AddInt64(&antiCrawlerBlocks, 1)
-		fmt.Printf("[%s] 触发反爬保护\n", p.Name())
 		return nil, fmt.Errorf("触发反爬保护")
 	}
 	
@@ -302,10 +313,10 @@ func (p *PiozAsyncPlugin) performDeepSearch(client *http.Client, keyword string)
 		return nil, fmt.Errorf("API返回状态码: %d", resp.StatusCode)
 	}
 	
+	// 读取响应
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		fmt.Printf("[%s] 读取响应失败: %v\n", p.Name(), err)
-		return nil, err
+		return nil, fmt.Errorf("读取响应失败: %w", err)
 	}
 	
 	fmt.Printf("[%s] 响应长度: %d 字节\n", p.Name(), len(body))
@@ -313,33 +324,30 @@ func (p *PiozAsyncPlugin) performDeepSearch(client *http.Client, keyword string)
 	// 检查响应是否包含反爬内容
 	if antiCrawlerRegex.Match(body) {
 		atomic.AddInt64(&antiCrawlerBlocks, 1)
-		fmt.Printf("[%s] 响应包含反爬内容\n", p.Name())
 		return nil, fmt.Errorf("响应包含反爬内容")
 	}
 	
+	// 解析JSON
 	var apiResp DeepSearchResponse
 	if err := json.Unmarshal(body, &apiResp); err != nil {
-		fmt.Printf("[%s] 解析JSON失败: %v\n", p.Name(), err)
-		fmt.Printf("[%s] 响应内容: %s\n", p.Name(), string(body[:min(500, len(body))]))
-		return nil, fmt.Errorf("解析API响应失败: %w", err)
+		return nil, fmt.Errorf("解析JSON失败: %w", err)
 	}
 	
-	fmt.Printf("[%s] API返回: code=%d, total=%d, results=%d\n", p.Name(), apiResp.Code, apiResp.Total, len(apiResp.Results))
+	fmt.Printf("[%s] API返回: code=%d, total=%d, results=%d\n", 
+		p.Name(), apiResp.Code, apiResp.Total, len(apiResp.Results))
 	
 	if apiResp.Code != 0 {
-		fmt.Printf("[%s] API错误: %s\n", p.Name(), apiResp.Message)
 		return nil, fmt.Errorf("API错误: %s", apiResp.Message)
 	}
 	
 	if len(apiResp.Results) == 0 {
-		fmt.Printf("[%s] API返回0个结果\n", p.Name())
 		return nil, fmt.Errorf("未找到搜索结果")
 	}
 	
-	// 转换为SearchResult
+	// 转换为 SearchResult
 	var results []model.SearchResult
 	for _, item := range apiResp.Results {
-		result := p.convertAPIResultToSearchResult(item)
+		result := p.convertToSearchResult(item)
 		results = append(results, result)
 	}
 	
@@ -347,15 +355,89 @@ func (p *PiozAsyncPlugin) performDeepSearch(client *http.Client, keyword string)
 	return results, nil
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
+// convertToSearchResult 将API结果转换为SearchResult
+func (p *PiozPlugin) convertToSearchResult(item struct {
+	ID         string `json:"id"`
+	Title      string `json:"title"`
+	CloudType  string `json:"cloud_type"`
+	Datetime   string `json:"datetime"`
+	Size       string `json:"size"`
+	Desc       string `json:"desc"`
+	CreateTime string `json:"create_time"`
+	ViewURL    string `json:"view_url"`
+}) model.SearchResult {
+	// 构建内容描述
+	var contentParts []string
+	
+	// 云盘类型
+	if item.CloudType != "" {
+		cloudTypeName := p.getCloudTypeName(item.CloudType)
+		if cloudTypeName != "" {
+			contentParts = append(contentParts, "类型: "+cloudTypeName)
+		}
 	}
-	return b
+	
+	// 大小
+	if item.Size != "" {
+		contentParts = append(contentParts, "大小: "+item.Size)
+	}
+	
+	// 时间
+	if item.Datetime != "" && item.Datetime != "0001-01-01T00:00:00Z" {
+		contentParts = append(contentParts, "分享时间: "+item.Datetime)
+	}
+	
+	// 构建详情页URL
+	viewURL := item.ViewURL
+	if viewURL == "" {
+		viewURL = fmt.Sprintf("%s/detail/%s", SiteBaseURL, item.ID)
+	}
+	
+	// 解析时间
+	datetime := p.parseTime(item.Datetime)
+	
+	// ✅ 修复：包含 URL，便于详情页解析
+	uniqueID := fmt.Sprintf("%s-%s-%s", p.Name(), item.ID, url.QueryEscape(viewURL))
+	
+	return model.SearchResult{
+		MessageID: uniqueID,
+		UniqueID:  uniqueID,  // ✅ 使用包含URL的格式
+		Title:     item.Title,
+		Content:   strings.Join(contentParts, " | "),
+		Datetime:  datetime,
+		Links:     []model.Link{},  // ❌ 改为空，等待 enhanceWithDetails 填充
+		Channel:   "",              // ⭐ 重要：插件搜索结果Channel必须为空
+	}
 }
 
+// parseTime 解析时间字符串
+func (p *PiozPlugin) parseTime(timeStr string) time.Time {
+	if timeStr == "" || timeStr == "0001-01-01T00:00:00Z" {
+		return time.Now()
+	}
+	
+	// 尝试多种时间格式
+	formats := []string{
+		time.RFC3339,
+		"2006-01-02T15:04:05Z",
+		"2006-01-02 15:04:05",
+		"2006-01-02",
+		"2006-1-2",
+	}
+	
+	for _, format := range formats {
+		if t, err := time.Parse(format, timeStr); err == nil {
+			return t
+		}
+	}
+	
+	// 如果解析失败，返回当前时间
+	return time.Now()
+}
+
+
 // performRegularSearch 执行普通搜索（HTML页面）
-func (p *PiozAsyncPlugin) performRegularSearch(client *http.Client, keyword string) ([]model.SearchResult, error) {
+func (p *PiozPlugin) performRegularSearch(client *http.Client, keyword string) ([]model.SearchResult, error) {
 	searchURL := fmt.Sprintf("%s/search?q=%s", SiteBaseURL, url.QueryEscape(keyword))
 	
 	req, err := http.NewRequest("GET", searchURL, nil)
@@ -372,7 +454,6 @@ func (p *PiozAsyncPlugin) performRegularSearch(client *http.Client, keyword stri
 	}
 	defer resp.Body.Close()
 	
-	// 检查反爬
 	if p.checkAntiCrawlerResponse(resp) {
 		atomic.AddInt64(&antiCrawlerBlocks, 1)
 		return nil, fmt.Errorf("触发反爬保护")
@@ -387,10 +468,7 @@ func (p *PiozAsyncPlugin) performRegularSearch(client *http.Client, keyword stri
 		return nil, err
 	}
 	
-	// 解析搜索结果
 	var results []model.SearchResult
-	
-	// 查找搜索结果项
 	doc.Find(".file-item, .result-item, .search-item, .text-gray-100").Each(func(i int, s *goquery.Selection) {
 		result := p.parseSearchItem(s, keyword, i)
 		if result.UniqueID != "" {
@@ -398,7 +476,6 @@ func (p *PiozAsyncPlugin) performRegularSearch(client *http.Client, keyword stri
 		}
 	})
 	
-	// 如果没找到，尝试查找详情页链接
 	if len(results) == 0 {
 		doc.Find("a[href*='/detail/']").Each(func(i int, a *goquery.Selection) {
 			result := p.parseDetailLink(a, i)
@@ -417,7 +494,7 @@ func (p *PiozAsyncPlugin) performRegularSearch(client *http.Client, keyword stri
 }
 
 // extractFromHotSearch 从首页热搜榜提取
-func (p *PiozAsyncPlugin) extractFromHotSearch(client *http.Client, keyword string) ([]model.SearchResult, error) {
+func (p *PiozPlugin) extractFromHotSearch(client *http.Client, keyword string) ([]model.SearchResult, error) {
 	req, err := http.NewRequest("GET", SiteBaseURL, nil)
 	if err != nil {
 		return nil, err
@@ -444,51 +521,35 @@ func (p *PiozAsyncPlugin) extractFromHotSearch(client *http.Client, keyword stri
 	var results []model.SearchResult
 	keywordLower := strings.ToLower(keyword)
 	
-	// 查找热搜榜项目
 	doc.Find(".hot-search-item").Each(func(i int, s *goquery.Selection) {
-		// 跳过置顶项
 		if s.Find(".pinned").Length() > 0 {
 			return
 		}
 		
 		titleElem := s.Find(".hot-search-title-text")
 		title := strings.TrimSpace(titleElem.Text())
-		if title == "" {
+		if title == "" || !strings.Contains(strings.ToLower(title), keywordLower) {
 			return
 		}
 		
-		// 检查是否包含关键词
-		if !strings.Contains(strings.ToLower(title), keywordLower) {
-			return
-		}
-		
-		// 提取链接
 		href, exists := s.Attr("href")
 		if !exists {
 			return
 		}
 		
-		// 提取ID
-		detailID := ""
-		if strings.HasPrefix(href, "/detail/") {
-			matches := detailIDRegex.FindStringSubmatch(href)
-			if len(matches) > 1 {
-				detailID = matches[1]
-			}
-		}
-		
-		if detailID == "" {
+		matches := detailIDRegex.FindStringSubmatch(href)
+		if len(matches) < 2 {
 			return
 		}
 		
+		detailID := matches[1]
 		detailURL := fmt.Sprintf("%s/detail/%s", SiteBaseURL, detailID)
+		
 		result := model.SearchResult{
 			UniqueID: fmt.Sprintf("%s-%s-%s", p.Name(), detailID, url.QueryEscape(detailURL)),
 			Title:    title,
 			Content:  "来自热搜榜的推荐资源 | 来源: hot_search",
-			Tags:     []string{},
 			Links:    []model.Link{},
-			Images:   []string{},
 			Channel:  "",
 			Datetime: time.Time{},
 		}
@@ -503,65 +564,13 @@ func (p *PiozAsyncPlugin) extractFromHotSearch(client *http.Client, keyword stri
 	return results, nil
 }
 
-// convertAPIResultToSearchResult 将API结果转换为SearchResult
-func (p *PiozAsyncPlugin) convertAPIResultToSearchResult(item struct {
-	ID         string `json:"id"`          // 修复：改为 string 类型
-	Title      string `json:"title"`
-	CloudType  string `json:"cloud_type"`
-	Datetime   string `json:"datetime"`
-	Size       string `json:"size"`
-	Desc       string `json:"desc"`
-	CreateTime string `json:"create_time"`
-	ViewURL    string `json:"view_url"`
-}) model.SearchResult {
-	// 获取云盘类型名称
-	cloudTypeName := p.getCloudTypeName(item.CloudType)
-	
-	// 构建内容描述
-	contentParts := []string{}
-	if cloudTypeName != "" {
-		contentParts = append(contentParts, "来源: "+cloudTypeName)
-	}
-	if item.Datetime != "" {
-		contentParts = append(contentParts, "时间: "+item.Datetime)
-	}
-	if item.Size != "" {
-		contentParts = append(contentParts, "大小: "+item.Size)
-	}
-	if item.Desc != "" {
-		contentParts = append(contentParts, "描述: "+item.Desc)
-	}
-	
-	// 将额外信息编码到UniqueID中: pluginName-id-viewURL
-	viewURL := item.ViewURL
-	if viewURL == "" {
-		viewURL = fmt.Sprintf("%s/detail/%s", SiteBaseURL, item.ID)  // 修复：使用字符串格式
-	}
-	
-	return model.SearchResult{
-		UniqueID: fmt.Sprintf("%s-%s-%s", p.Name(), item.ID, url.QueryEscape(viewURL)),  // 修复：使用字符串格式
-		Title:    item.Title,
-		Content:  strings.Join(contentParts, "\n"),
-		Tags:     []string{},
-		Links:    []model.Link{},
-		Images:   []string{},
-		Channel:  "",
-		Datetime: time.Time{},
-	}
-}
-
 // parseSearchItem 解析单个搜索结果项
-func (p *PiozAsyncPlugin) parseSearchItem(s *goquery.Selection, keyword string, index int) model.SearchResult {
+func (p *PiozPlugin) parseSearchItem(s *goquery.Selection, keyword string, index int) model.SearchResult {
 	result := model.SearchResult{}
-
+	
 	// 提取标题
 	title := ""
-	titleSelectors := []string{
-		".text-gray-100",
-		"[class*='title']",
-		".hot-search-title-text",
-		"span[title]",
-	}
+	titleSelectors := []string{".text-gray-100", "[class*='title']", ".hot-search-title-text", "span[title]"}
 	
 	for _, selector := range titleSelectors {
 		if titleElem := s.Find(selector).First(); titleElem.Length() > 0 {
@@ -576,20 +585,11 @@ func (p *PiozAsyncPlugin) parseSearchItem(s *goquery.Selection, keyword string, 
 			}
 		}
 	}
-
-	if title == "" {
-		text := strings.TrimSpace(s.Text())
-		if len(text) > 100 {
-			title = text[:100] + "..."
-		} else if text != "" {
-			title = text
-		}
-	}
-
+	
 	if title == "" {
 		return result
 	}
-
+	
 	// 提取详情页链接
 	var detailURL string
 	s.Find("a[href]").Each(func(j int, a *goquery.Selection) {
@@ -604,65 +604,25 @@ func (p *PiozAsyncPlugin) parseSearchItem(s *goquery.Selection, keyword string, 
 			}
 		}
 	})
-
-	if detailURL == "" && s.Is("a") {
-		if href, exists := s.Attr("href"); exists && strings.Contains(href, "/detail/") {
-			if strings.HasPrefix(href, "http") {
-				detailURL = href
-			} else {
-				detailURL = SiteBaseURL + href
-			}
-		}
-	}
-
-	// 提取描述/内容
-	content := ""
-	s.Find(".text-gray-400, .text-sm, [class*='desc'], [class*='info']").Each(func(j int, elem *goquery.Selection) {
-		text := strings.TrimSpace(elem.Text())
-		if text != "" && !strings.Contains(text, "夸克网盘") && !strings.Contains(text, "2026-") {
-			if content == "" {
-				content = text
-			} else {
-				content += " | " + text
-			}
-		}
-	})
-
-	if content == "" {
-		s.Find(".text-gray-400").Each(func(j int, elem *goquery.Selection) {
-			text := strings.TrimSpace(elem.Text())
-			if strings.Contains(text, "夸克网盘") || strings.Contains(text, "2026-") {
-				if content == "" {
-					content = text
-				} else {
-					content += " | " + text
-				}
-			}
-		})
-	}
-
+	
 	// 构建唯一ID
 	if detailURL != "" {
 		result.UniqueID = fmt.Sprintf("%s-detail-%s", p.Name(), url.QueryEscape(detailURL))
 	} else {
 		result.UniqueID = fmt.Sprintf("%s-html-%d-%d", p.Name(), index, time.Now().UnixNano())
 	}
-
+	
 	result.Title = title
-	if content != "" {
-		result.Content = content + " | 来源: html_search"
-	} else {
-		result.Content = "来源: html_search"
-	}
+	result.Content = "来源: html_search"
 	result.Datetime = time.Time{}
 	result.Links = []model.Link{}
 	result.Channel = ""
-
+	
 	return result
 }
 
 // parseDetailLink 解析详情页链接
-func (p *PiozAsyncPlugin) parseDetailLink(a *goquery.Selection, index int) model.SearchResult {
+func (p *PiozPlugin) parseDetailLink(a *goquery.Selection, index int) model.SearchResult {
 	result := model.SearchResult{}
 	
 	href, exists := a.Attr("href")
@@ -670,7 +630,6 @@ func (p *PiozAsyncPlugin) parseDetailLink(a *goquery.Selection, index int) model
 		return result
 	}
 	
-	// 提取ID
 	matches := detailIDRegex.FindStringSubmatch(href)
 	if len(matches) < 2 {
 		return result
@@ -700,7 +659,7 @@ func (p *PiozAsyncPlugin) parseDetailLink(a *goquery.Selection, index int) model
 }
 
 // enhanceWithDetails 异步获取详情页信息（二次跳转）
-func (p *PiozAsyncPlugin) enhanceWithDetails(client *http.Client, results []model.SearchResult) []model.SearchResult {
+func (p *PiozPlugin) enhanceWithDetails(client *http.Client, results []model.SearchResult) []model.SearchResult {
 	if len(results) == 0 {
 		return results
 	}
@@ -709,7 +668,17 @@ func (p *PiozAsyncPlugin) enhanceWithDetails(client *http.Client, results []mode
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	
-	semaphore := make(chan struct{}, MaxConcurrency)
+	// ✅ 根据结果数量动态调整并发度
+	concurrency := MaxConcurrency
+	if len(results) < 5 {
+		concurrency = 2 // 结果少时降低并发
+	} else if len(results) > 20 {
+		concurrency = 12 // 结果多时适当提高并发
+	}
+	
+	semaphore := make(chan struct{}, concurrency)
+	
+	fmt.Printf("[%s] 开始增强 %d 个结果，并发度: %d\n", p.Name(), len(results), concurrency)
 	
 	for _, result := range results {
 		wg.Add(1)
@@ -753,11 +722,12 @@ func (p *PiozAsyncPlugin) enhanceWithDetails(client *http.Client, results []mode
 	}
 	
 	wg.Wait()
+	fmt.Printf("[%s] 增强完成，成功: %d/%d\n", p.Name(), len(enhancedResults), len(results))
 	return enhancedResults
 }
 
 // fetchResourceInfo 获取资源信息
-func (p *PiozAsyncPlugin) fetchResourceInfo(client *http.Client, result model.SearchResult) []model.Link {
+func (p *PiozPlugin) fetchResourceInfo(client *http.Client, result model.SearchResult) []model.Link {
 	// 性能统计
 	start := time.Now()
 	atomic.AddInt64(&detailRequests, 1)
@@ -765,42 +735,83 @@ func (p *PiozAsyncPlugin) fetchResourceInfo(client *http.Client, result model.Se
 		duration := time.Since(start).Nanoseconds()
 		atomic.AddInt64(&totalDetailTime, duration)
 	}()
-
+	
+	// ✅ 添加调试日志
+	fmt.Printf("[%s] 开始获取详情: UniqueID=%s, Title=%s\n", p.Name(), result.UniqueID, result.Title)
+	
 	// 方法1：尝试transfer API（首选）
 	links := p.tryTransferAPI(client, result)
 	if len(links) > 0 {
+		fmt.Printf("[%s] Transfer API 成功: %d个链接\n", p.Name(), len(links))
 		return links
 	}
 	
 	// 方法2：解析详情页HTML
-	return p.parseResourceDetailPage(client, result)
+	fmt.Printf("[%s] Transfer API 失败，尝试解析详情页\n", p.Name())
+	links = p.parseResourceDetailPage(client, result)
+	if len(links) > 0 {
+		fmt.Printf("[%s] 详情页解析成功: %d个链接\n", p.Name(), len(links))
+	} else {
+		fmt.Printf("[%s] 详情页解析失败，未找到链接\n", p.Name())
+	}
+	
+	return links
 }
 
 // tryTransferAPI 尝试transfer API
-func (p *PiozAsyncPlugin) tryTransferAPI(client *http.Client, result model.SearchResult) []model.Link {
-	// 从UniqueID提取ID: format is "pluginName-id-encodedURL"
+func (p *PiozPlugin) tryTransferAPI(client *http.Client, result model.SearchResult) []model.Link {
 	var resourceID string
+	
+	// 方案1：从 UniqueID 提取
 	parts := strings.Split(result.UniqueID, "-")
 	if len(parts) >= 2 {
 		resourceID = parts[1]
 	}
 	
+	// ✅ 方案2：从 MessageID 提取（pioz 特有）
+	if resourceID == "" && result.MessageID != "" {
+		msgParts := strings.Split(result.MessageID, "-")
+		if len(msgParts) >= 2 {
+			resourceID = msgParts[1]
+		}
+	}
+	
+	// ✅ 方案3：从详情页链接中提取
 	if resourceID == "" {
+		for _, link := range result.Links {
+			if link.Type == "detail" {
+				matches := detailIDRegex.FindStringSubmatch(link.URL)
+				if len(matches) > 1 {
+					resourceID = matches[1]
+					break
+				}
+			}
+		}
+	}
+	
+	if resourceID == "" {
+		fmt.Printf("[%s] 无法提取资源ID: UniqueID=%s\n", p.Name(), result.UniqueID)
 		return nil
 	}
 	
-	// 检查transfer缓存
-	cacheKey := fmt.Sprintf("transfer:%s", resourceID)
+	// ✅ 优化缓存键，添加插件名前缀
+	cacheKey := fmt.Sprintf("pioz:transfer:%s", resourceID)
 	if cached, ok := transferCache.Load(cacheKey); ok {
 		if links, ok := cached.([]model.Link); ok && len(links) > 0 {
+			fmt.Printf("[%s] Transfer缓存命中: resourceID=%s\n", p.Name(), resourceID)
 			return links
 		}
 	}
 	
 	// 调用transfer API
 	transferURL := fmt.Sprintf("%s/transfer?id=%s", APIBaseURL, url.QueryEscape(resourceID))
+	fmt.Printf("[%s] 调用Transfer API: resourceID=%s\n", p.Name(), resourceID)
 	
-	req, err := http.NewRequest("GET", transferURL, nil)
+	// ✅ 添加超时控制
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	
+	req, err := http.NewRequestWithContext(ctx, "GET", transferURL, nil)
 	if err != nil {
 		return nil
 	}
@@ -814,7 +825,6 @@ func (p *PiozAsyncPlugin) tryTransferAPI(client *http.Client, result model.Searc
 	}
 	defer resp.Body.Close()
 	
-	// 检查反爬
 	if p.checkAntiCrawlerResponse(resp) {
 		atomic.AddInt64(&antiCrawlerBlocks, 1)
 		return nil
@@ -829,7 +839,15 @@ func (p *PiozAsyncPlugin) tryTransferAPI(client *http.Client, result model.Searc
 		return nil
 	}
 	
-	var transferResp TransferResponse
+	var transferResp struct {
+		Success bool `json:"success"`
+		Data    struct {
+			URL      string `json:"url"`
+			Password string `json:"password"`
+			Type     string `json:"type"`
+		} `json:"data"`
+	}
+	
 	if err := json.Unmarshal(body, &transferResp); err != nil {
 		return nil
 	}
@@ -849,39 +867,50 @@ func (p *PiozAsyncPlugin) tryTransferAPI(client *http.Client, result model.Searc
 }
 
 // parseResourceDetailPage 解析资源详情页
-func (p *PiozAsyncPlugin) parseResourceDetailPage(client *http.Client, result model.SearchResult) []model.Link {
-	// 从UniqueID提取详情页URL: format is "pluginName-id-encodedURL" or "pluginName-detail-encodedURL"
+func (p *PiozPlugin) parseResourceDetailPage(client *http.Client, result model.SearchResult) []model.Link {
+	// 从UniqueID提取详情页URL
 	detailURL := ""
 	
-	if strings.Contains(result.UniqueID, "-detail-") {
-		// 格式: pluginName-detail-encodedURL
-		parts := strings.SplitN(result.UniqueID, "-detail-", 2)
-		if len(parts) == 2 {
-			var err error
-			detailURL, err = url.QueryUnescape(parts[1])
-			if err != nil {
-				detailURL = parts[1]
+	// 方案1：从 UniqueID 提取（依赖正确的格式）
+	parts := strings.Split(result.UniqueID, "-")
+	if len(parts) >= 3 {
+		// 第三部分是编码的URL
+		var err error
+		detailURL, err = url.QueryUnescape(parts[2])
+		if err != nil {
+			detailURL = parts[2]
+		}
+	}
+	
+	// ✅ 方案2：直接从已有的详情页链接提取（兜底）
+	if detailURL == "" && len(result.Links) > 0 {
+		for _, link := range result.Links {
+			if link.Type == "detail" {
+				detailURL = link.URL
+				break
 			}
 		}
-	} else {
-		// 格式: pluginName-id-encodedURL
-		parts := strings.SplitN(result.UniqueID, "-", 3)
-		if len(parts) >= 3 {
-			// 第三部分是编码的URL
-			var err error
-			detailURL, err = url.QueryUnescape(parts[2])
-			if err != nil {
-				detailURL = parts[2]
+	}
+	
+	// 方案3：从 Content 中提取详情页URL（最后手段）
+	if detailURL == "" && strings.Contains(result.Content, "detail/") {
+		// 尝试从 Content 中提取详情页URL
+		if idx := strings.Index(result.Content, "https://www.pioz.cn/detail/"); idx != -1 {
+			endIdx := strings.IndexAny(result.Content[idx:], " |")
+			if endIdx != -1 {
+				detailURL = result.Content[idx : idx+endIdx]
+			} else {
+				detailURL = result.Content[idx:]
 			}
-		} else if len(parts) >= 2 {
-			// 只有ID，构建URL
-			detailURL = fmt.Sprintf("%s/detail/%s", SiteBaseURL, parts[1])
 		}
 	}
 	
 	if detailURL == "" {
+		fmt.Printf("[%s] 无法提取详情页URL: UniqueID=%s\n", p.Name(), result.UniqueID)
 		return nil
 	}
+	
+	fmt.Printf("[%s] 解析详情页: %s\n", p.Name(), detailURL)
 	
 	ctx, cancel := context.WithTimeout(context.Background(), DetailTimeout)
 	defer cancel()
@@ -900,7 +929,6 @@ func (p *PiozAsyncPlugin) parseResourceDetailPage(client *http.Client, result mo
 	}
 	defer resp.Body.Close()
 	
-	// 检查反爬
 	if p.checkAntiCrawlerResponse(resp) {
 		atomic.AddInt64(&antiCrawlerBlocks, 1)
 		return nil
@@ -920,7 +948,7 @@ func (p *PiozAsyncPlugin) parseResourceDetailPage(client *http.Client, result mo
 }
 
 // extractLinksFromDocument 从文档中提取链接
-func (p *PiozAsyncPlugin) extractLinksFromDocument(doc *goquery.Document) []model.Link {
+func (p *PiozPlugin) extractLinksFromDocument(doc *goquery.Document) []model.Link {
 	var links []model.Link
 	pageText := doc.Text()
 	
@@ -937,7 +965,7 @@ func (p *PiozAsyncPlugin) extractLinksFromDocument(doc *goquery.Document) []mode
 	
 	for _, urlStr := range urls {
 		linkType := p.determineLinkType(urlStr)
-		if linkType == "" {
+		if linkType == "" || linkType == "unknown" {
 			continue
 		}
 		
@@ -963,26 +991,15 @@ func (p *PiozAsyncPlugin) extractLinksFromDocument(doc *goquery.Document) []mode
 }
 
 // extractAllURLs 从文本中提取所有URL
-func (p *PiozAsyncPlugin) extractAllURLs(text string) []string {
+func (p *PiozPlugin) extractAllURLs(text string) []string {
 	var urls []string
 	
 	// 使用正则表达式匹配所有支持的网盘链接
 	patterns := []*regexp.Regexp{
-		quarkLinkRegex,
-		baiduLinkRegex,
-		aliyunLinkRegex,
-		ucLinkRegex,
-		xunleiLinkRegex,
-		tianyiLinkRegex,
-		lanzouLinkRegex,
-		link115Regex,
-		mobileLinkRegex,
-		weiyunLinkRegex,
-		jianguoyunLinkRegex,
-		link123Regex,
-		pikpakLinkRegex,
-		magnetLinkRegex,
-		ed2kLinkRegex,
+		quarkLinkRegex, baiduLinkRegex, aliyunLinkRegex, ucLinkRegex,
+		xunleiLinkRegex, tianyiLinkRegex, lanzouLinkRegex, link115Regex,
+		mobileLinkRegex, weiyunLinkRegex, jianguoyunLinkRegex, link123Regex,
+		pikpakLinkRegex, magnetLinkRegex, ed2kLinkRegex,
 	}
 	
 	for _, regex := range patterns {
@@ -996,7 +1013,7 @@ func (p *PiozAsyncPlugin) extractAllURLs(text string) []string {
 // 反爬绕过策略
 
 // applyAntiCrawlerDelay 应用反爬延迟
-func (p *PiozAsyncPlugin) applyAntiCrawlerDelay() {
+func (p *PiozPlugin) applyAntiCrawlerDelay() {
 	now := time.Now()
 	
 	// 计算距离上次请求的时间
@@ -1026,7 +1043,7 @@ func (p *PiozAsyncPlugin) applyAntiCrawlerDelay() {
 }
 
 // setStealthHeaders 设置隐身请求头
-func (p *PiozAsyncPlugin) setStealthHeaders(req *http.Request) {
+func (p *PiozPlugin) setStealthHeaders(req *http.Request) {
 	req.Header.Set("User-Agent", p.currentUserAgent)
 	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7")
 	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6")
@@ -1040,7 +1057,7 @@ func (p *PiozAsyncPlugin) setStealthHeaders(req *http.Request) {
 	req.Header.Set("Cache-Control", "max-age=0")
 	req.Header.Set("Pragma", "no-cache")
 	
-	// 现代浏览器安全头
+	// ✅ 添加现代浏览器安全头
 	req.Header.Set("Sec-Ch-Ua", `"Not_A Brand";v="8", "Chromium";v="120", "Microsoft Edge";v="120"`)
 	req.Header.Set("Sec-Ch-Ua-Mobile", "?0")
 	req.Header.Set("Sec-Ch-Ua-Platform", `"Windows"`)
@@ -1051,7 +1068,7 @@ func (p *PiozAsyncPlugin) setStealthHeaders(req *http.Request) {
 }
 
 // setAPIHeaders 设置API请求头
-func (p *PiozAsyncPlugin) setAPIHeaders(req *http.Request) {
+func (p *PiozPlugin) setAPIHeaders(req *http.Request) {
 	req.Header.Set("User-Agent", p.currentUserAgent)
 	req.Header.Set("Accept", "application/json, text/plain, */*")
 	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
@@ -1066,7 +1083,7 @@ func (p *PiozAsyncPlugin) setAPIHeaders(req *http.Request) {
 }
 
 // addSessionCookies 添加会话cookies
-func (p *PiozAsyncPlugin) addSessionCookies(req *http.Request) {
+func (p *PiozPlugin) addSessionCookies(req *http.Request) {
 	sessionMutex.RLock()
 	defer sessionMutex.RUnlock()
 	
@@ -1088,7 +1105,7 @@ func (p *PiozAsyncPlugin) addSessionCookies(req *http.Request) {
 }
 
 // checkAntiCrawlerResponse 检查反爬响应
-func (p *PiozAsyncPlugin) checkAntiCrawlerResponse(resp *http.Response) bool {
+func (p *PiozPlugin) checkAntiCrawlerResponse(resp *http.Response) bool {
 	// 检查状态码
 	if resp.StatusCode == 403 || resp.StatusCode == 429 {
 		return true
@@ -1103,10 +1120,18 @@ func (p *PiozAsyncPlugin) checkAntiCrawlerResponse(resp *http.Response) bool {
 }
 
 // doRequestWithRetry 带重试机制的HTTP请求
-func (p *PiozAsyncPlugin) doRequestWithRetry(client *http.Client, req *http.Request) (*http.Response, error) {
+func (p *PiozPlugin) doRequestWithRetry(client *http.Client, req *http.Request) (*http.Response, error) {
 	var lastErr error
 	
+	// ✅ 添加最大重试时间限制
+	maxRetryTime := 5 * time.Second
+	startTime := time.Now()
+	
 	for i := 0; i < RetryCount; i++ {
+		if time.Since(startTime) > maxRetryTime {
+			return nil, fmt.Errorf("重试超时")
+		}
+		
 		if i > 0 {
 			// 指数退避
 			backoff := time.Duration(1<<uint(i-1)) * 500 * time.Millisecond
@@ -1138,18 +1163,22 @@ func (p *PiozAsyncPlugin) doRequestWithRetry(client *http.Client, req *http.Requ
 }
 
 // 辅助函数
-func (p *PiozAsyncPlugin) isValidNetworkDriveURL(url string) bool {
-	if strings.Contains(url, "javascript:") || 
-	   strings.Contains(url, "#") ||
-	   url == "" ||
-	   (!strings.HasPrefix(url, "http") && !strings.HasPrefix(url, "magnet:") && !strings.HasPrefix(url, "ed2k:")) {
+
+// isValidNetworkDriveURL 检查是否为有效的网盘URL
+func (p *PiozPlugin) isValidNetworkDriveURL(urlStr string) bool {
+	if strings.Contains(urlStr, "javascript:") || 
+	   strings.Contains(urlStr, "#") ||
+	   urlStr == "" ||
+	   (!strings.HasPrefix(urlStr, "http") && !strings.HasPrefix(urlStr, "magnet:") && !strings.HasPrefix(urlStr, "ed2k:")) {
 		return false
 	}
 	
-	return p.determineLinkType(url) != ""
+	linkType := p.determineLinkType(urlStr)
+	return linkType != "" && linkType != "unknown"
 }
 
-func (p *PiozAsyncPlugin) determineLinkType(urlStr string) string {
+// determineLinkType 判断链接类型（支持16种）
+func (p *PiozPlugin) determineLinkType(urlStr string) string {
 	switch {
 	case quarkLinkRegex.MatchString(urlStr):
 		return "quark"
@@ -1186,7 +1215,8 @@ func (p *PiozAsyncPlugin) determineLinkType(urlStr string) string {
 	}
 }
 
-func (p *PiozAsyncPlugin) extractPasswordFromURL(urlStr string) string {
+// extractPasswordFromURL 从URL提取密码
+func (p *PiozPlugin) extractPasswordFromURL(urlStr string) string {
 	matches := urlPasswordRegex.FindStringSubmatch(urlStr)
 	if len(matches) > 1 {
 		return matches[1]
@@ -1194,7 +1224,8 @@ func (p *PiozAsyncPlugin) extractPasswordFromURL(urlStr string) string {
 	return ""
 }
 
-func (p *PiozAsyncPlugin) extractPasswordFromText(text string) string {
+// extractPasswordFromText 从文本提取密码
+func (p *PiozPlugin) extractPasswordFromText(text string) string {
 	matches := passwordRegex.FindStringSubmatch(text)
 	if len(matches) > 1 {
 		return matches[1]
@@ -1202,20 +1233,34 @@ func (p *PiozAsyncPlugin) extractPasswordFromText(text string) string {
 	return ""
 }
 
-func (p *PiozAsyncPlugin) createLinkFromURL(urlStr, password string) model.Link {
+// createLinkFromURL 从URL创建Link对象（使用对象池）
+func (p *PiozPlugin) createLinkFromURL(urlStr, password string) model.Link {
+	// ✅ 使用对象池减少内存分配
+	link := p.linkPool.Get().(*model.Link)
+	
 	linkType := p.determineLinkType(urlStr)
 	if linkType == "" {
 		linkType = "other"
 	}
 	
-	return model.Link{
-		Type:     linkType,
-		URL:      urlStr,
-		Password: password,
-	}
+	link.Type = linkType
+	link.URL = urlStr
+	link.Password = password
+	
+	// 复制值并归还对象到池
+	result := *link
+	
+	// 清空对象并归还
+	link.Type = ""
+	link.URL = ""
+	link.Password = ""
+	p.linkPool.Put(link)
+	
+	return result
 }
 
-func (p *PiozAsyncPlugin) containsLink(links []model.Link, link model.Link) bool {
+// containsLink 检查链接是否已存在
+func (p *PiozPlugin) containsLink(links []model.Link, link model.Link) bool {
 	for _, l := range links {
 		if l.URL == link.URL {
 			return true
@@ -1224,7 +1269,8 @@ func (p *PiozAsyncPlugin) containsLink(links []model.Link, link model.Link) bool
 	return false
 }
 
-func (p *PiozAsyncPlugin) getCloudTypeName(cloudType string) string {
+// getCloudTypeName 获取云盘类型名称
+func (p *PiozPlugin) getCloudTypeName(cloudType string) string {
 	cloudType = strings.ToLower(cloudType)
 	
 	typeMap := map[string]string{
@@ -1253,7 +1299,7 @@ func (p *PiozAsyncPlugin) getCloudTypeName(cloudType string) string {
 }
 
 // GetPerformanceStats 获取性能统计信息
-func (p *PiozAsyncPlugin) GetPerformanceStats() map[string]interface{} {
+func (p *PiozPlugin) GetPerformanceStats() map[string]interface{} {
 	totalSearchRequests := atomic.LoadInt64(&searchRequests)
 	totalDetailRequests := atomic.LoadInt64(&detailRequests)
 	totalCacheHits := atomic.LoadInt64(&cacheHits)
@@ -1291,10 +1337,4 @@ func (p *PiozAsyncPlugin) GetPerformanceStats() map[string]interface{} {
 		"session_cookies":        len(sessionCookies),
 		"current_user_agent":     p.currentUserAgent,
 	}
-}
-
-// cachedResponse 缓存响应结构
-type cachedResponse struct {
-	results   []model.SearchResult
-	timestamp time.Time
 }

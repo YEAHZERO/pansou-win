@@ -43,7 +43,7 @@ set CHANNELS=
 
 REM Plugin configuration - MUST SET THIS
 set ASYNC_PLUGIN_ENABLED=true
-set ENABLED_PLUGINS=pioz2
+set ENABLED_PLUGINS=pioz
 
 REM Performance configuration optimized
 set CONCURRENCY=15
