@@ -180,8 +180,8 @@ func NewPiozPlugin() *PiozPlugin {
 		randomIndex = -randomIndex
 	}
 
-	// 创建基础插件，设置更长的响应超时时间
-	basePlugin := plugin.NewBaseAsyncPlugin("pioz", 30)
+	// 创建基础插件，设置更高的优先级
+	basePlugin := plugin.NewBaseAsyncPlugin("pioz", 2)
 
 	p := &PiozPlugin{
 		BaseAsyncPlugin:  basePlugin,
@@ -202,16 +202,24 @@ func NewPiozPlugin() *PiozPlugin {
 
 // Search 同步搜索接口
 func (p *PiozPlugin) Search(keyword string, ext map[string]interface{}) ([]model.SearchResult, error) {
-	result, err := p.SearchWithResult(keyword, ext)
-	if err != nil {
-		return nil, err
-	}
-	return result.Results, nil
+	// 直接调用 searchImpl 方法，绕过异步超时限制
+	return p.searchImpl(p.optimizedClient, keyword, ext)
 }
 
 // SearchWithResult 带结果统计的搜索接口
 func (p *PiozPlugin) SearchWithResult(keyword string, ext map[string]interface{}) (model.PluginSearchResult, error) {
-	return p.AsyncSearchWithResult(keyword, p.searchImpl, p.MainCacheKey, ext)
+	// 直接调用 searchImpl 方法，绕过异步超时限制
+	results, err := p.searchImpl(p.optimizedClient, keyword, ext)
+	if err != nil {
+		return model.PluginSearchResult{
+			Results: []model.SearchResult{},
+			IsFinal: true,
+		}, err
+	}
+	return model.PluginSearchResult{
+		Results: results,
+		IsFinal: true,
+	}, nil
 }
 
 // searchImpl 实现搜索逻辑（多策略搜索）
@@ -247,87 +255,94 @@ func (p *PiozPlugin) searchImpl(client *http.Client, keyword string, ext map[str
 		fmt.Printf("[%s] 使用优化的HTTP客户端\n", p.Name())
 	}
 
-	// 应用反爬延迟
-	p.applyAntiCrawlerDelay()
-	fmt.Printf("[%s] 应用反爬延迟完成\n", p.Name())
-
 	// 策略1：深度搜索API（首选）
 	fmt.Printf("[%s] 执行策略1：深度搜索API\n", p.Name())
 	results, err := p.performDeepSearch(client, keyword)
 	if err == nil && len(results) > 0 {
 		fmt.Printf("[%s] ✅ 策略1成功：深度搜索API返回 %d 个结果\n", p.Name(), len(results))
-		
-		// 启动后台任务增强结果，立即返回原始结果
-		go func() {
-			enhancedResults := p.enhanceWithDetails(client, results)
-			fmt.Printf("[%s] 后台结果增强完成，增强后结果数: %d\n", p.Name(), len(enhancedResults))
-			searchCache.Store(cacheKey, cachedResponse{
-				results:   enhancedResults,
-				timestamp: time.Now(),
-			})
-			fmt.Printf("[%s] 结果已缓存，缓存键: %s\n", p.Name(), cacheKey)
-		}()
-		
-		return results, nil
-	}
-	fmt.Printf("[%s] ⚠️ 策略1失败：%v\n", p.Name(), err)
 
-	// 策略2：普通搜索页面（备用）
-	p.applyAntiCrawlerDelay()
-	fmt.Printf("[%s] 执行策略2：普通HTML搜索\n", p.Name())
-	results, err = p.performRegularSearch(client, keyword)
-	if err == nil && len(results) > 0 {
-		fmt.Printf("[%s] ✅ 策略2成功：HTML搜索返回 %d 个结果\n", p.Name(), len(results))
-		
-		// 启动后台任务增强结果，立即返回原始结果
-		go func() {
-			enhancedResults := p.enhanceWithDetails(client, results)
-			fmt.Printf("[%s] 后台结果增强完成，增强后结果数: %d\n", p.Name(), len(enhancedResults))
-			searchCache.Store(cacheKey, cachedResponse{
-				results:   enhancedResults,
-				timestamp: time.Now(),
-			})
-			fmt.Printf("[%s] 结果已缓存，缓存键: %s\n", p.Name(), cacheKey)
-		}()
-		
-		return results, nil
-	}
-	fmt.Printf("[%s] ⚠️ 策略2失败：%v\n", p.Name(), err)
-
-	// 策略3：首页热搜榜匹配（最后手段）
-	p.applyAntiCrawlerDelay()
-	fmt.Printf("[%s] 执行策略3：热搜榜匹配\n", p.Name())
-	results, err = p.extractFromHotSearch(client, keyword)
-	if err != nil {
-		fmt.Printf("[%s] ❌ 策略3失败：%v\n", p.Name(), err)
-
-		// ⭐ 策略4：简化搜索（最后的兜底方案）
-		fmt.Printf("[%s] 执行策略4：简化搜索（直接返回搜索页链接）\n", p.Name())
-		results = p.createFallbackResult(keyword)
-		if len(results) > 0 {
-			fmt.Printf("[%s] ✅ 策略4成功：返回搜索页链接\n", p.Name())
-			fmt.Printf("[%s] 兜底结果: %+v\n", p.Name(), results)
-			return results, nil
-		}
-
-		// ✅ 关键修复：即使所有策略都失败，也返回空切片而不是nil
-		fmt.Printf("[%s] 所有搜索策略都失败，返回空结果\n", p.Name())
-		return []model.SearchResult{}, fmt.Errorf("[%s] 所有搜索策略都失败: %w", p.Name(), err)
-	}
-	fmt.Printf("[%s] ✅ 策略3成功：热搜榜返回 %d 个结果\n", p.Name(), len(results))
-
-	// 启动后台任务增强结果，立即返回原始结果
-	go func() {
+		// 同步执行结果增强，确保返回真正的网盘链接
 		enhancedResults := p.enhanceWithDetails(client, results)
-		fmt.Printf("[%s] 后台结果增强完成，增强后结果数: %d\n", p.Name(), len(enhancedResults))
+		fmt.Printf("[%s] 结果增强完成，增强后结果数: %d\n", p.Name(), len(enhancedResults))
+
+		// 缓存增强后的结果
 		searchCache.Store(cacheKey, cachedResponse{
 			results:   enhancedResults,
 			timestamp: time.Now(),
 		})
 		fmt.Printf("[%s] 结果已缓存，缓存键: %s\n", p.Name(), cacheKey)
-	}()
 
-	return results, nil
+		return enhancedResults, nil
+	}
+	fmt.Printf("[%s] ⚠️ 策略1失败：%v\n", p.Name(), err)
+
+	// 策略2：普通搜索页面（备用）
+	fmt.Printf("[%s] 执行策略2：普通HTML搜索\n", p.Name())
+	results, err = p.performRegularSearch(client, keyword)
+	if err == nil && len(results) > 0 {
+		fmt.Printf("[%s] ✅ 策略2成功：HTML搜索返回 %d 个结果\n", p.Name(), len(results))
+
+		// 同步执行结果增强，确保返回真正的网盘链接
+		enhancedResults := p.enhanceWithDetails(client, results)
+		fmt.Printf("[%s] 结果增强完成，增强后结果数: %d\n", p.Name(), len(enhancedResults))
+
+		// 缓存增强后的结果
+		searchCache.Store(cacheKey, cachedResponse{
+			results:   enhancedResults,
+			timestamp: time.Now(),
+		})
+		fmt.Printf("[%s] 结果已缓存，缓存键: %s\n", p.Name(), cacheKey)
+
+		return enhancedResults, nil
+	}
+	fmt.Printf("[%s] ⚠️ 策略2失败：%v\n", p.Name(), err)
+
+	// 策略3：首页热搜榜匹配（最后手段）
+	fmt.Printf("[%s] 执行策略3：热搜榜匹配\n", p.Name())
+	results, err = p.extractFromHotSearch(client, keyword)
+	if err == nil && len(results) > 0 {
+		fmt.Printf("[%s] ✅ 策略3成功：热搜榜返回 %d 个结果\n", p.Name(), len(results))
+
+		// 同步执行结果增强，确保返回真正的网盘链接
+		enhancedResults := p.enhanceWithDetails(client, results)
+		fmt.Printf("[%s] 结果增强完成，增强后结果数: %d\n", p.Name(), len(enhancedResults))
+
+		// 缓存增强后的结果
+		searchCache.Store(cacheKey, cachedResponse{
+			results:   enhancedResults,
+			timestamp: time.Now(),
+		})
+		fmt.Printf("[%s] 结果已缓存，缓存键: %s\n", p.Name(), cacheKey)
+
+		return enhancedResults, nil
+	}
+	fmt.Printf("[%s] ❌ 策略3失败：%v\n", p.Name(), err)
+
+	// ⭐ 策略4：简化搜索（最后的兜底方案）
+	fmt.Printf("[%s] 执行策略4：简化搜索（直接返回搜索页链接）\n", p.Name())
+	results = p.createFallbackResult(keyword)
+	if len(results) > 0 {
+		fmt.Printf("[%s] ✅ 策略4成功：返回搜索页链接\n", p.Name(), len(results))
+		for i, result := range results {
+			fmt.Printf("[%s] 兜底结果 %d: 标题='%s', 链接数=%d\n", p.Name(), i+1, result.Title, len(result.Links))
+			for j, link := range result.Links {
+				fmt.Printf("[%s] 链接 %d: 类型='%s', URL='%s'\n", p.Name(), j+1, link.Type, link.URL)
+			}
+		}
+
+		// 缓存兜底结果
+		searchCache.Store(cacheKey, cachedResponse{
+			results:   results,
+			timestamp: time.Now(),
+		})
+		fmt.Printf("[%s] 兜底结果已缓存，缓存键: %s\n", p.Name(), cacheKey)
+
+		return results, nil
+	}
+
+	// ✅ 关键修复：即使所有策略都失败，也返回空切片而不是nil
+	fmt.Printf("[%s] 所有搜索策略都失败，返回空结果\n", p.Name())
+	return []model.SearchResult{}, fmt.Errorf("[%s] 所有搜索策略都失败: %w", p.Name(), err)
 }
 
 // performDeepSearch 执行深度搜索API
@@ -594,6 +609,11 @@ func (p *PiozPlugin) performRegularSearch(client *http.Client, keyword string) (
 	}
 
 	if len(results) == 0 {
+		fmt.Printf("[%s] HTML解析未找到结果，尝试从纯文本内容中提取...\n", p.Name())
+		results = p.extractResultsFromPlainText(pageContent, keyword)
+	}
+
+	if len(results) == 0 {
 		fmt.Printf("[%s] ❌ HTML解析失败：所有选择器都未找到结果\n", p.Name())
 		fmt.Printf("[%s] 建议：使用浏览器访问 %s 检查页面结构\n", p.Name(), searchURL)
 		return nil, fmt.Errorf("未找到搜索结果")
@@ -601,6 +621,113 @@ func (p *PiozPlugin) performRegularSearch(client *http.Client, keyword string) (
 
 	fmt.Printf("[%s] 普通搜索找到 %d 个结果\n", p.Name(), len(results))
 	return results, nil
+}
+
+// extractResultsFromPlainText 从纯文本内容中提取搜索结果
+func (p *PiozPlugin) extractResultsFromPlainText(pageContent, keyword string) []model.SearchResult {
+	var results []model.SearchResult
+
+	fmt.Printf("[%s] 尝试从纯文本内容中提取搜索结果...\n", p.Name())
+
+	detailIDPattern := regexp.MustCompile(`/detail/(\d+)`)
+	detailIDs := detailIDPattern.FindAllStringSubmatch(pageContent, -1)
+
+	titlePattern := regexp.MustCompile(`(\d+)\.([^0-9]+?)(?:短剧|夸克网盘|百度网盘|阿里云盘)`)
+	titles := titlePattern.FindAllStringSubmatch(pageContent, -1)
+
+	fmt.Printf("[%s] 找到 %d 个详情页ID, %d 个标题\n", p.Name(), len(detailIDs), len(titles))
+
+	seenIDs := make(map[string]bool)
+
+	for i, match := range detailIDs {
+		if len(match) >= 2 {
+			detailID := match[1]
+			if seenIDs[detailID] {
+				continue
+			}
+			seenIDs[detailID] = true
+
+			title := fmt.Sprintf("资源 %s", detailID)
+			if i < len(titles) && len(titles[i]) >= 3 {
+				title = strings.TrimSpace(titles[i][2])
+			}
+
+			detailURL := fmt.Sprintf("%s/detail/%s", SiteBaseURL, detailID)
+			uniqueID := fmt.Sprintf("%s-%s-%s", p.Name(), detailID, url.QueryEscape(detailURL))
+
+			result := model.SearchResult{
+				UniqueID: uniqueID,
+				Title:    title,
+				Content:  fmt.Sprintf("来源: pioz.cn | ID: %s", detailID),
+				Datetime: time.Now(),
+				Links: []model.Link{
+					{
+						Type: "detail",
+						URL:  detailURL,
+					},
+				},
+				Channel: "",
+			}
+
+			results = append(results, result)
+			fmt.Printf("[%s] 从纯文本提取结果: ID=%s, Title=%s\n", p.Name(), detailID, title)
+		}
+	}
+
+	if len(results) == 0 {
+		lines := strings.Split(pageContent, "\n")
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
+
+			if strings.Contains(line, keyword) || strings.Contains(line, "短剧") || strings.Contains(line, "网盘") {
+				idMatches := detailIDRegex.FindAllStringSubmatch(line, -1)
+				for _, idMatch := range idMatches {
+					if len(idMatch) >= 2 {
+						detailID := idMatch[1]
+						if seenIDs[detailID] {
+							continue
+						}
+						seenIDs[detailID] = true
+
+						title := line
+						if idx := strings.Index(title, "http"); idx > 0 {
+							title = strings.TrimSpace(title[:idx])
+						}
+
+						detailURL := fmt.Sprintf("%s/detail/%s", SiteBaseURL, detailID)
+						uniqueID := fmt.Sprintf("%s-%s-%s", p.Name(), detailID, url.QueryEscape(detailURL))
+
+						result := model.SearchResult{
+							UniqueID: uniqueID,
+							Title:    title,
+							Content:  fmt.Sprintf("来源: pioz.cn | ID: %s", detailID),
+							Datetime: time.Now(),
+							Links: []model.Link{
+								{
+									Type: "detail",
+									URL:  detailURL,
+								},
+							},
+							Channel: "",
+						}
+
+						results = append(results, result)
+						fmt.Printf("[%s] 从纯文本行提取结果: ID=%s, Title=%s\n", p.Name(), detailID, title)
+					}
+				}
+			}
+
+			if len(results) >= 10 {
+				break
+			}
+		}
+	}
+
+	fmt.Printf("[%s] 从纯文本内容中提取到 %d 个结果\n", p.Name(), len(results))
+	return results
 }
 
 // extractResultsFromJavaScript 从JavaScript嵌入数据中提取搜索结果
@@ -999,7 +1126,17 @@ func (p *PiozPlugin) parseSearchItem(s *goquery.Selection, keyword string, index
 	result.Title = title
 	result.Content = "来源: html_search"
 	result.Datetime = time.Time{}
-	result.Links = []model.Link{}
+	// 添加详情页链接
+	if detailURL != "" {
+		result.Links = []model.Link{
+			{
+				Type: "detail",
+				URL:  detailURL,
+			},
+		}
+	} else {
+		result.Links = []model.Link{}
+	}
 	result.Channel = ""
 
 	return result
@@ -1035,7 +1172,13 @@ func (p *PiozPlugin) parseDetailLink(a *goquery.Selection, index int) model.Sear
 	result.UniqueID = fmt.Sprintf("%s-%s-%s", p.Name(), detailID, url.QueryEscape(detailURL))
 	result.Title = title
 	result.Content = "来自搜索结果页 | 来源: html_search"
-	result.Links = []model.Link{}
+	// 添加详情页链接
+	result.Links = []model.Link{
+		{
+			Type: "detail",
+			URL:  detailURL,
+		},
+	}
 	result.Channel = ""
 	result.Datetime = time.Time{}
 
@@ -1107,13 +1250,13 @@ func (p *PiozPlugin) enhanceWithDetails(client *http.Client, results []model.Sea
 
 	wg.Wait()
 	fmt.Printf("[%s] 增强完成，成功: %d/%d\n", p.Name(), len(enhancedResults), len(results))
-	
+
 	// ✅ 关键修复：如果增强结果为空，返回原始结果
 	if len(enhancedResults) == 0 {
 		fmt.Printf("[%s] 增强结果为空，返回原始结果: %d个\n", p.Name(), len(results))
 		return results
 	}
-	
+
 	return enhancedResults
 }
 
@@ -1338,38 +1481,38 @@ func (p *PiozPlugin) parseResourceDetailPage(client *http.Client, result model.S
 	pageContent := string(respBody)
 	if strings.Contains(pageContent, "了解并同意获取") {
 		fmt.Printf("[%s] 页面包含'了解并同意获取'按钮，需要额外跳转\n", p.Name())
-		
+
 		// 第二次请求：模拟点击"了解并同意获取"按钮
 		// 这里需要发送一个POST请求到相同的URL
 		postReq, err := http.NewRequestWithContext(ctx, "POST", detailURL, nil)
 		if err != nil {
 			return nil
 		}
-		
+
 		// 设置相同的请求头
 		p.setStealthHeaders(postReq)
 		p.addSessionCookies(postReq)
-		
+
 		// 添加可能需要的额外头
 		postReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		postReq.Header.Set("Referer", detailURL)
-		
+
 		// 发送POST请求
 		postResp, err := client.Do(postReq)
 		if err != nil {
 			return nil
 		}
-		
+
 		// 读取跳转后的页面
 		postBody, err := p.readCompressedBody(postResp)
 		if err != nil {
 			return nil
 		}
-		
+
 		if postResp.StatusCode != 200 {
 			return nil
 		}
-		
+
 		// 使用跳转后的页面内容
 		pageContent = string(postBody)
 		fmt.Printf("[%s] 成功处理'了解并同意获取'跳转\n", p.Name())
@@ -1447,7 +1590,7 @@ func (p *PiozPlugin) ExtractLinksFromDocument(doc *goquery.Document) []model.Lin
 				}
 			}
 		}
-		
+
 		// 检查元素的所有属性，寻找可能的链接
 		for _, attr := range s.Nodes[0].Attr {
 			if attr.Key != "href" && attr.Key != "onclick" && attr.Key != "data-href" {
@@ -1473,7 +1616,7 @@ func (p *PiozPlugin) ExtractLinksFromDocument(doc *goquery.Document) []model.Lin
 		if strings.Contains(elemText, "打开网盘链接") {
 			openCount++
 			fmt.Printf("[%s] 找到'打开网盘链接'按钮，检查其属性...\n", p.Name())
-			
+
 			// 检查onclick属性
 			if onclick, exists := s.Attr("onclick"); exists {
 				fmt.Printf("[%s] 按钮有onclick属性: %s\n", p.Name(), onclick)
@@ -1486,7 +1629,7 @@ func (p *PiozPlugin) ExtractLinksFromDocument(doc *goquery.Document) []model.Lin
 					}
 				}
 			}
-			
+
 			// 检查data-href或其他数据属性
 			if dataHref, exists := s.Attr("data-href"); exists {
 				if p.isValidNetworkDriveURL(dataHref) {
@@ -1494,7 +1637,7 @@ func (p *PiozPlugin) ExtractLinksFromDocument(doc *goquery.Document) []model.Lin
 					fmt.Printf("[%s] 从data-href中提取到链接: %s\n", p.Name(), dataHref)
 				}
 			}
-			
+
 			// 检查附近的元素，包括兄弟元素和父元素的子元素
 			s.NextAll().Each(func(j int, nextS *goquery.Selection) {
 				if j > 10 { // 检查前10个兄弟元素
@@ -1509,7 +1652,7 @@ func (p *PiozPlugin) ExtractLinksFromDocument(doc *goquery.Document) []model.Lin
 					}
 				}
 			})
-			
+
 			// 检查父元素的所有子元素
 			s.Parent().Find("*").Each(func(j int, childS *goquery.Selection) {
 				if j > 20 { // 检查前20个子元素
@@ -1537,7 +1680,7 @@ func (p *PiozPlugin) ExtractLinksFromDocument(doc *goquery.Document) []model.Lin
 		if strings.Contains(elemText, "分享链接") {
 			shareCount++
 			fmt.Printf("[%s] 找到'分享链接'文本，检查其兄弟元素...\n", p.Name())
-			
+
 			// 检查兄弟元素
 			s.NextAll().Each(func(j int, nextS *goquery.Selection) {
 				if j > 5 { // 检查前5个兄弟元素
@@ -1555,6 +1698,26 @@ func (p *PiozPlugin) ExtractLinksFromDocument(doc *goquery.Document) []model.Lin
 		}
 	})
 	fmt.Printf("[%s] 处理了 %d 个'分享链接'文本\n", p.Name(), shareCount)
+
+	// 专门处理包含"pan.quark.cn"的元素
+	fmt.Printf("[%s] 尝试从包含'pan.quark.cn'的元素中提取...\n", p.Name())
+	quarkCount := 0
+	doc.Find("*").Each(func(i int, s *goquery.Selection) {
+		// 检查元素文本是否包含"pan.quark.cn"
+		elemText := strings.TrimSpace(s.Text())
+		if strings.Contains(elemText, "pan.quark.cn") {
+			quarkCount++
+			fmt.Printf("[%s] 找到包含'pan.quark.cn'的元素，提取链接...\n", p.Name())
+			quarkUrls := p.extractAllURLs(elemText)
+			for _, urlStr := range quarkUrls {
+				if p.isValidNetworkDriveURL(urlStr) {
+					urls = append(urls, urlStr)
+					fmt.Printf("[%s] 从包含'pan.quark.cn'的元素中提取到链接: %s\n", p.Name(), urlStr)
+				}
+			}
+		}
+	})
+	fmt.Printf("[%s] 处理了 %d 个包含'pan.quark.cn'的元素\n", p.Name(), quarkCount)
 
 	// 去重
 	uniqueUrls := make(map[string]bool)
