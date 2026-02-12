@@ -1282,6 +1282,7 @@ func (p *PiozPlugin) parseResourceDetailPage(client *http.Client, result model.S
 	ctx, cancel := context.WithTimeout(context.Background(), DetailTimeout)
 	defer cancel()
 
+	// 第一次请求：获取初始页面
 	req, err := http.NewRequestWithContext(ctx, "GET", detailURL, nil)
 	if err != nil {
 		return nil
@@ -1294,7 +1295,11 @@ func (p *PiozPlugin) parseResourceDetailPage(client *http.Client, result model.S
 	if err != nil {
 		return nil
 	}
-	defer resp.Body.Close()
+	// 不要立即关闭，使用readCompressedBody处理
+	respBody, err := p.readCompressedBody(resp)
+	if err != nil {
+		return nil
+	}
 
 	if p.checkAntiCrawlerResponse(resp) {
 		atomic.AddInt64(&antiCrawlerBlocks, 1)
@@ -1305,7 +1310,49 @@ func (p *PiozPlugin) parseResourceDetailPage(client *http.Client, result model.S
 		return nil
 	}
 
-	doc, err := goquery.NewDocumentFromReader(resp.Body)
+	// 检查是否需要点击"了解并同意获取"按钮
+	pageContent := string(respBody)
+	if strings.Contains(pageContent, "了解并同意获取") {
+		fmt.Printf("[%s] 页面包含'了解并同意获取'按钮，需要额外跳转\n", p.Name())
+		
+		// 第二次请求：模拟点击"了解并同意获取"按钮
+		// 这里需要发送一个POST请求到相同的URL
+		postReq, err := http.NewRequestWithContext(ctx, "POST", detailURL, nil)
+		if err != nil {
+			return nil
+		}
+		
+		// 设置相同的请求头
+		p.setStealthHeaders(postReq)
+		p.addSessionCookies(postReq)
+		
+		// 添加可能需要的额外头
+		postReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		postReq.Header.Set("Referer", detailURL)
+		
+		// 发送POST请求
+		postResp, err := client.Do(postReq)
+		if err != nil {
+			return nil
+		}
+		
+		// 读取跳转后的页面
+		postBody, err := p.readCompressedBody(postResp)
+		if err != nil {
+			return nil
+		}
+		
+		if postResp.StatusCode != 200 {
+			return nil
+		}
+		
+		// 使用跳转后的页面内容
+		pageContent = string(postBody)
+		fmt.Printf("[%s] 成功处理'了解并同意获取'跳转\n", p.Name())
+	}
+
+	// 解析最终页面
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(pageContent))
 	if err != nil {
 		return nil
 	}
