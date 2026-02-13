@@ -487,7 +487,7 @@ func ExtractPassword(content, url string) string {
 
 				// 如果提取码后面有其他字符（如表情符号、标签等），只取提取码部分
 				// 增加更多可能的结束标记
-				endIdx := strings.IndexAny(code, " \t\n\r，。；;,🏷📁🔍📎🔗📌📋📂🗂️🔖📚📒📔📕📓📗📘📙📄📃📑🧾📊📈📉🗒️🗓️📆��🗑️🔒🔓🔏🔐🔑🗝️")
+				endIdx := strings.IndexAny(code, " \t\n\r，。；;,🏷📁🔍📎🔗📌📋📂🗂️🔖📚📒📔📕📓📗📘📙📄📃📑🧾📊📈📉🗒️🗓️📆🗑️🔒🔓🔏🔐🔑🗝️")
 				if endIdx > 0 {
 					code = code[:endIdx]
 				}

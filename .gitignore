@@ -65,3 +65,4 @@ __debug_bin
 **/go-build*/
 /.trae
 /test
+/.gocache

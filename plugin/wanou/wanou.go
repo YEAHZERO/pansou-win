@@ -1,5 +1,11 @@
 package wanou
 
+// ============================================================================
+// Wanou 插件
+// 数据源：woog.nxog.eu.org JSON API
+// 职责：请求接口并转换为统一 SearchResult
+// ============================================================================
+
 import (
 	"context"
 	"fmt"
@@ -16,33 +22,30 @@ import (
 	"pansou/util/json"
 )
 
+// 常量配置
 const (
-	// 默认超时时间 - 优化为更短时间
 	DefaultTimeout = 8 * time.Second
 
-	// HTTP连接池配置
 	MaxIdleConns        = 200
 	MaxIdleConnsPerHost = 50
 	MaxConnsPerHost     = 100
 	IdleConnTimeout     = 90 * time.Second
 )
 
-// 性能统计（原子操作）
+// 运行指标
 var (
 	searchRequests  int64 = 0
-	totalSearchTime int64 = 0 // 纳秒
+	totalSearchTime int64 = 0
 )
 
 func init() {
 	plugin.RegisterGlobalPlugin(NewWanouPlugin())
 }
 
-// 预编译的正则表达式
+// 正则：提取码与网盘链接识别
 var (
-	// 密码提取正则表达式
 	passwordRegex = regexp.MustCompile(`\?pwd=([0-9a-zA-Z]+)`)
 
-	// 常见网盘链接的正则表达式（支持16种类型）
 	quarkLinkRegex  = regexp.MustCompile(`https?://pan\.quark\.cn/s/[0-9a-zA-Z]+`)
 	ucLinkRegex     = regexp.MustCompile(`https?://drive\.uc\.cn/s/[0-9a-zA-Z]+(\?[^"'\s]*)?`)
 	baiduLinkRegex  = regexp.MustCompile(`https?://pan\.baidu\.com/s/[0-9a-zA-Z_\-]+(\?pwd=[0-9a-zA-Z]+)?`)
@@ -57,13 +60,13 @@ var (
 	ed2kLinkRegex   = regexp.MustCompile(`ed2k://\|file\|.+\|\d+\|[0-9a-fA-F]{32}\|/`)
 )
 
-// WanouAsyncPlugin Wanou异步插件
+// 插件定义
 type WanouAsyncPlugin struct {
 	*plugin.BaseAsyncPlugin
 	optimizedClient *http.Client
 }
 
-// createOptimizedHTTPClient 创建优化的HTTP客户端
+// createOptimizedHTTPClient 创建带连接池的 HTTP 客户端。
 func createOptimizedHTTPClient() *http.Client {
 	transport := &http.Transport{
 		MaxIdleConns:        MaxIdleConns,
@@ -79,7 +82,7 @@ func createOptimizedHTTPClient() *http.Client {
 	}
 }
 
-// NewWanouPlugin 创建新的Wanou异步插件
+// NewWanouPlugin 创建插件实例。
 func NewWanouPlugin() *WanouAsyncPlugin {
 	return &WanouAsyncPlugin{
 		BaseAsyncPlugin: plugin.NewBaseAsyncPlugin("wanou", 1),
@@ -87,7 +90,7 @@ func NewWanouPlugin() *WanouAsyncPlugin {
 	}
 }
 
-// Search 同步搜索接口
+// Search 兼容基础搜索接口。
 func (p *WanouAsyncPlugin) Search(keyword string, ext map[string]interface{}) ([]model.SearchResult, error) {
 	result, err := p.SearchWithResult(keyword, ext)
 	if err != nil {
@@ -96,14 +99,14 @@ func (p *WanouAsyncPlugin) Search(keyword string, ext map[string]interface{}) ([
 	return result.Results, nil
 }
 
-// SearchWithResult 带结果统计的搜索接口
+// SearchWithResult 走框架异步搜索入口。
 func (p *WanouAsyncPlugin) SearchWithResult(keyword string, ext map[string]interface{}) (model.PluginSearchResult, error) {
 	return p.AsyncSearchWithResult(keyword, p.searchImpl, p.MainCacheKey, ext)
 }
 
-// searchImpl 搜索实现
+// searchImpl 主流程：请求 API、解析 JSON、转换结果。
 func (p *WanouAsyncPlugin) searchImpl(client *http.Client, keyword string, ext map[string]interface{}) ([]model.SearchResult, error) {
-	// 性能统计
+
 	start := time.Now()
 	atomic.AddInt64(&searchRequests, 1)
 	defer func() {
@@ -111,18 +114,14 @@ func (p *WanouAsyncPlugin) searchImpl(client *http.Client, keyword string, ext m
 		atomic.AddInt64(&totalSearchTime, duration)
 	}()
 
-	// 使用优化的客户端
 	if p.optimizedClient != nil {
 		client = p.optimizedClient
 	}
 
-	// 构建API搜索URL
 	searchURL := fmt.Sprintf("https://woog.nxog.eu.org/api.php/provide/vod?ac=detail&wd=%s", url.QueryEscape(keyword))
 
-	// 记录搜索URL到日志
 	fmt.Printf("[%s] %s\n", p.Name(), "woog.nxog.eu.org")
 
-	// 创建HTTP请求
 	ctx, cancel := context.WithTimeout(context.Background(), DefaultTimeout)
 	defer cancel()
 
@@ -131,7 +130,6 @@ func (p *WanouAsyncPlugin) searchImpl(client *http.Client, keyword string, ext m
 		return nil, fmt.Errorf("[%s] 创建搜索请求失败: %w", p.Name(), err)
 	}
 
-	// 设置请求头
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
 	req.Header.Set("Accept", "application/json, text/plain, */*")
 	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
@@ -139,14 +137,12 @@ func (p *WanouAsyncPlugin) searchImpl(client *http.Client, keyword string, ext m
 	req.Header.Set("Referer", "https://woog.nxog.eu.org/")
 	req.Header.Set("Cache-Control", "no-cache")
 
-	// 发送请求
 	resp, err := p.doRequestWithRetry(req, client)
 	if err != nil {
 		return nil, fmt.Errorf("[%s] 搜索请求失败: %w", p.Name(), err)
 	}
 	defer resp.Body.Close()
 
-	// 解析JSON响应
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("[%s] 读取响应失败: %w", p.Name(), err)
@@ -157,12 +153,10 @@ func (p *WanouAsyncPlugin) searchImpl(client *http.Client, keyword string, ext m
 		return nil, fmt.Errorf("[%s] 解析JSON响应失败: %w", p.Name(), err)
 	}
 
-	// 检查API响应状态
 	if apiResponse.Code != 1 {
 		return nil, fmt.Errorf("[%s] API返回错误: %s", p.Name(), apiResponse.Msg)
 	}
 
-	// 解析搜索结果
 	var results []model.SearchResult
 	for _, item := range apiResponse.List {
 		if result := p.parseAPIItem(item); result.Title != "" {
@@ -173,7 +167,7 @@ func (p *WanouAsyncPlugin) searchImpl(client *http.Client, keyword string, ext m
 	return results, nil
 }
 
-// WanouAPIResponse API响应结构
+// API 顶层响应。
 type WanouAPIResponse struct {
 	Code      int            `json:"code"`
 	Msg       string         `json:"msg"`
@@ -184,7 +178,7 @@ type WanouAPIResponse struct {
 	List      []WanouAPIItem `json:"list"`
 }
 
-// WanouAPIItem API数据项
+// API 单条资源结构。
 type WanouAPIItem struct {
 	VodID       int    `json:"vod_id"`
 	VodName     string `json:"vod_name"`
@@ -200,18 +194,16 @@ type WanouAPIItem struct {
 	VodPic      string `json:"vod_pic"`
 }
 
-// parseAPIItem 解析API数据项
+// parseAPIItem 将 API 结构映射为 SearchResult。
 func (p *WanouAsyncPlugin) parseAPIItem(item WanouAPIItem) model.SearchResult {
-	// 构建唯一ID
+
 	uniqueID := fmt.Sprintf("%s-%d", p.Name(), item.VodID)
 
-	// 构建标题
 	title := strings.TrimSpace(item.VodName)
 	if title == "" {
 		return model.SearchResult{}
 	}
 
-	// 构建描述
 	var contentParts []string
 	if item.VodActor != "" {
 		contentParts = append(contentParts, fmt.Sprintf("主演: %s", item.VodActor))
@@ -230,16 +222,13 @@ func (p *WanouAsyncPlugin) parseAPIItem(item WanouAPIItem) model.SearchResult {
 	}
 	content := strings.Join(contentParts, " | ")
 
-	// 解析下载链接
 	links := p.parseDownloadLinks(item.VodDownFrom, item.VodDownURL)
 
-	// 提取封面图片
 	var images []string
 	if item.VodPic != "" {
 		images = append(images, item.VodPic)
 	}
 
-	// 构建标签
 	var tags []string
 	if item.VodYear != "" {
 		tags = append(tags, item.VodYear)
@@ -255,22 +244,20 @@ func (p *WanouAsyncPlugin) parseAPIItem(item WanouAPIItem) model.SearchResult {
 		Links:    links,
 		Tags:     tags,
 		Images:   images,
-		Channel:  "",          // 插件搜索结果Channel为空
-		Datetime: time.Time{}, // 使用零值而不是nil，参考jikepan插件标准
+		Channel:  "",
+		Datetime: time.Time{},
 	}
 }
 
-// parseDownloadLinks 解析下载链接
+// parseDownloadLinks 解析下载来源和下载地址。
 func (p *WanouAsyncPlugin) parseDownloadLinks(vodDownFrom, vodDownURL string) []model.Link {
 	if vodDownFrom == "" || vodDownURL == "" {
 		return nil
 	}
 
-	// 按$$$分隔
 	fromParts := strings.Split(vodDownFrom, "$$$")
 	urlParts := strings.Split(vodDownURL, "$$$")
 
-	// 确保数组长度一致
 	minLen := len(fromParts)
 	if len(urlParts) < minLen {
 		minLen = len(urlParts)
@@ -285,13 +272,11 @@ func (p *WanouAsyncPlugin) parseDownloadLinks(vodDownFrom, vodDownURL string) []
 			continue
 		}
 
-		// 直接确定链接类型（合并验证和类型判断，避免重复正则匹配）
 		linkType := p.determineLinkTypeOptimized(fromType, urlStr)
 		if linkType == "" {
 			continue
 		}
 
-		// 提取密码
 		password := p.extractPassword(urlStr)
 
 		links = append(links, model.Link{
@@ -304,9 +289,9 @@ func (p *WanouAsyncPlugin) parseDownloadLinks(vodDownFrom, vodDownURL string) []
 	return links
 }
 
-// determineLinkTypeOptimized 优化的链接类型判断（避免重复正则匹配）
+// determineLinkTypeOptimized 优先按来源类型判断，失败再按 URL 回退。
 func (p *WanouAsyncPlugin) determineLinkTypeOptimized(apiType, url string) string {
-	// 基本验证（包含原 isValidNetworkDriveURL 的逻辑）
+
 	if strings.Contains(url, "javascript:") ||
 		strings.Contains(url, "#") ||
 		url == "" ||
@@ -314,7 +299,6 @@ func (p *WanouAsyncPlugin) determineLinkTypeOptimized(apiType, url string) strin
 		return ""
 	}
 
-	// 优先根据API标识快速映射（避免正则匹配）
 	switch strings.ToUpper(apiType) {
 	case "BD":
 		if baiduLinkRegex.MatchString(url) {
@@ -358,7 +342,6 @@ func (p *WanouAsyncPlugin) determineLinkTypeOptimized(apiType, url string) strin
 		}
 	}
 
-	// 如果API标识匹配失败，回退到URL正则匹配（一次性匹配）
 	switch {
 	case baiduLinkRegex.MatchString(url):
 		return "baidu"
@@ -385,11 +368,11 @@ func (p *WanouAsyncPlugin) determineLinkTypeOptimized(apiType, url string) strin
 	case quarkLinkRegex.MatchString(url):
 		return "quark"
 	default:
-		return "" // 不支持的类型
+		return ""
 	}
 }
 
-// determineLinkType 根据URL确定链接类型（支持16种类型）
+// determineLinkType 根据 URL 正则判断链接类型。
 func (p *WanouAsyncPlugin) determineLinkType(url string) string {
 	switch {
 	case quarkLinkRegex.MatchString(url):
@@ -417,11 +400,11 @@ func (p *WanouAsyncPlugin) determineLinkType(url string) string {
 	case ed2kLinkRegex.MatchString(url):
 		return "ed2k"
 	default:
-		return "" // 不支持的类型返回空字符串
+		return ""
 	}
 }
 
-// extractPassword 从URL中提取密码
+// extractPassword 提取 URL 中的 pwd 参数。
 func (p *WanouAsyncPlugin) extractPassword(url string) string {
 	matches := passwordRegex.FindStringSubmatch(url)
 	if len(matches) > 1 {
@@ -430,9 +413,9 @@ func (p *WanouAsyncPlugin) extractPassword(url string) string {
 	return ""
 }
 
-// doRequestWithRetry 带重试的HTTP请求（优化JSON API的重试策略）
+// doRequestWithRetry 执行重试请求。
 func (p *WanouAsyncPlugin) doRequestWithRetry(req *http.Request, client *http.Client) (*http.Response, error) {
-	maxRetries := 2 // 对于JSON API减少重试次数
+	maxRetries := 2
 	var lastErr error
 
 	for i := 0; i < maxRetries; i++ {
@@ -447,23 +430,22 @@ func (p *WanouAsyncPlugin) doRequestWithRetry(req *http.Request, client *http.Cl
 			lastErr = err
 		}
 
-		// JSON API快速重试：只等待很短时间
 		if i < maxRetries-1 {
-			time.Sleep(100 * time.Millisecond) // 从秒级改为100毫秒
+			time.Sleep(100 * time.Millisecond)
 		}
 	}
 
 	return nil, fmt.Errorf("[%s] 请求失败，重试%d次后仍失败: %w", p.Name(), maxRetries, lastErr)
 }
 
-// GetPerformanceStats 获取性能统计信息
+// GetPerformanceStats 返回运行时指标。
 func (p *WanouAsyncPlugin) GetPerformanceStats() map[string]interface{} {
 	totalRequests := atomic.LoadInt64(&searchRequests)
 	totalTime := atomic.LoadInt64(&totalSearchTime)
 
 	var avgTime float64
 	if totalRequests > 0 {
-		avgTime = float64(totalTime) / float64(totalRequests) / 1e6 // 转换为毫秒
+		avgTime = float64(totalTime) / float64(totalRequests) / 1e6
 	}
 
 	return map[string]interface{}{

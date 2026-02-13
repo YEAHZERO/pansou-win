@@ -1,5 +1,11 @@
 package zhizhen
 
+// ============================================================================
+// Zhizhen 插件
+// 数据源：xiaomi666.fun 搜索页 + 详情页
+// 职责：抓取搜索结果并增强详情页链接与图片
+// ============================================================================
+
 import (
 	"context"
 	"fmt"
@@ -16,47 +22,41 @@ import (
 	"github.com/PuerkitoBio/goquery"
 )
 
+// 常量配置
 const (
-	// 默认超时时间 - 优化为更短时间
 	DefaultTimeout = 8 * time.Second
 	DetailTimeout  = 6 * time.Second
 
-	// 并发数限制 - 大幅提高并发数
 	MaxConcurrency = 20
 
-	// HTTP连接池配置
 	MaxIdleConns        = 200
 	MaxIdleConnsPerHost = 50
 	MaxConnsPerHost     = 100
 	IdleConnTimeout     = 90 * time.Second
 
-	// 缓存TTL - 更短的缓存时间
 	cacheTTL = 1 * time.Hour
 )
 
-// 性能统计（原子操作）
+// 运行指标
 var (
 	searchRequests     int64 = 0
 	detailPageRequests int64 = 0
 	cacheHits          int64 = 0
 	cacheMisses        int64 = 0
-	totalSearchTime    int64 = 0 // 纳秒
-	totalDetailTime    int64 = 0 // 纳秒
+	totalSearchTime    int64 = 0
+	totalDetailTime    int64 = 0
 )
 
 func init() {
 	plugin.RegisterGlobalPlugin(NewZhizhenPlugin())
 }
 
-// 预编译的正则表达式
+// 正则与详情缓存
 var (
-	// 从详情页URL中提取ID的正则表达式
 	detailIDRegex = regexp.MustCompile(`/vod/detail/id/(\d+)\.html`)
 
-	// 密码提取正则表达式
 	passwordRegex = regexp.MustCompile(`\?pwd=([0-9a-zA-Z]+)`)
 
-	// 常见网盘链接的正则表达式（支持16种类型）
 	quarkLinkRegex      = regexp.MustCompile(`https?://pan\.quark\.cn/s/[0-9a-zA-Z]+`)
 	ucLinkRegex         = regexp.MustCompile(`https?://drive\.uc\.cn/s/[0-9a-zA-Z]+(\?[^"'\s]*)?`)
 	baiduLinkRegex      = regexp.MustCompile(`https?://pan\.baidu\.com/s/[0-9a-zA-Z_\-]+(\?pwd=[0-9a-zA-Z]+)?`)
@@ -73,17 +73,16 @@ var (
 	magnetLinkRegex     = regexp.MustCompile(`magnet:\?xt=urn:btih:[0-9a-fA-F]{40}`)
 	ed2kLinkRegex       = regexp.MustCompile(`ed2k://\|file\|.+\|\d+\|[0-9a-fA-F]{32}\|/`)
 
-	// 缓存相关
-	detailCache = sync.Map{} // 缓存详情页解析结果
+	detailCache = sync.Map{}
 )
 
-// ZhizhenAsyncPlugin Zhizhen异步插件
+// 插件定义
 type ZhizhenAsyncPlugin struct {
 	*plugin.BaseAsyncPlugin
 	optimizedClient *http.Client
 }
 
-// createOptimizedHTTPClient 创建优化的HTTP客户端
+// createOptimizedHTTPClient 创建带连接池的 HTTP 客户端。
 func createOptimizedHTTPClient() *http.Client {
 	transport := &http.Transport{
 		MaxIdleConns:        MaxIdleConns,
@@ -99,7 +98,7 @@ func createOptimizedHTTPClient() *http.Client {
 	}
 }
 
-// NewZhizhenPlugin 创建新的Zhizhen异步插件
+// NewZhizhenPlugin 创建插件实例。
 func NewZhizhenPlugin() *ZhizhenAsyncPlugin {
 	return &ZhizhenAsyncPlugin{
 		BaseAsyncPlugin: plugin.NewBaseAsyncPlugin("zhizhen", 1),
@@ -107,7 +106,7 @@ func NewZhizhenPlugin() *ZhizhenAsyncPlugin {
 	}
 }
 
-// Search 同步搜索接口
+// Search 兼容基础搜索接口。
 func (p *ZhizhenAsyncPlugin) Search(keyword string, ext map[string]interface{}) ([]model.SearchResult, error) {
 	result, err := p.SearchWithResult(keyword, ext)
 	if err != nil {
@@ -116,14 +115,14 @@ func (p *ZhizhenAsyncPlugin) Search(keyword string, ext map[string]interface{}) 
 	return result.Results, nil
 }
 
-// SearchWithResult 带结果统计的搜索接口
+// SearchWithResult 走框架异步搜索入口。
 func (p *ZhizhenAsyncPlugin) SearchWithResult(keyword string, ext map[string]interface{}) (model.PluginSearchResult, error) {
 	return p.AsyncSearchWithResult(keyword, p.searchImpl, p.MainCacheKey, ext)
 }
 
-// searchImpl 实现具体的搜索逻辑
+// searchImpl 主流程：抓取搜索页并执行详情增强。
 func (p *ZhizhenAsyncPlugin) searchImpl(client *http.Client, keyword string, ext map[string]interface{}) ([]model.SearchResult, error) {
-	// 性能统计
+
 	start := time.Now()
 	atomic.AddInt64(&searchRequests, 1)
 	defer func() {
@@ -131,28 +130,22 @@ func (p *ZhizhenAsyncPlugin) searchImpl(client *http.Client, keyword string, ext
 		atomic.AddInt64(&totalSearchTime, duration)
 	}()
 
-	// 使用优化的客户端
 	if p.optimizedClient != nil {
 		client = p.optimizedClient
 	}
 
-	// 1. 构建搜索URL
 	searchURL := fmt.Sprintf("https://xiaomi666.fun/index.php/vod/search/wd/%s.html", url.QueryEscape(keyword))
 
-	// 记录搜索URL到日志
 	fmt.Printf("[%s] %s\n", p.Name(), "xiaomi666.fun")
 
-	// 2. 创建带超时的上下文
 	ctx, cancel := context.WithTimeout(context.Background(), DefaultTimeout)
 	defer cancel()
 
-	// 3. 创建请求
 	req, err := http.NewRequestWithContext(ctx, "GET", searchURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("[%s] 创建请求失败: %w", p.Name(), err)
 	}
 
-	// 4. 设置完整的请求头（避免反爬虫）
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
 	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
 	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
@@ -161,7 +154,6 @@ func (p *ZhizhenAsyncPlugin) searchImpl(client *http.Client, keyword string, ext
 	req.Header.Set("Cache-Control", "max-age=0")
 	req.Header.Set("Referer", "https://xiaomi666.fun/")
 
-	// 5. 发送请求（带重试机制）
 	resp, err := p.doRequestWithRetry(req, client)
 	if err != nil {
 		return nil, fmt.Errorf("[%s] 搜索请求失败: %w", p.Name(), err)
@@ -172,13 +164,11 @@ func (p *ZhizhenAsyncPlugin) searchImpl(client *http.Client, keyword string, ext
 		return nil, fmt.Errorf("[%s] 搜索请求返回状态码: %d", p.Name(), resp.StatusCode)
 	}
 
-	// 6. 解析搜索结果页面
 	doc, err := goquery.NewDocumentFromReader(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("[%s] 解析搜索页面失败: %w", p.Name(), err)
 	}
 
-	// 7. 提取搜索结果
 	var results []model.SearchResult
 
 	doc.Find(".module-search-item").Each(func(i int, s *goquery.Selection) {
@@ -188,24 +178,20 @@ func (p *ZhizhenAsyncPlugin) searchImpl(client *http.Client, keyword string, ext
 		}
 	})
 
-	// 8. 异步获取详情页信息
 	enhancedResults := p.enhanceWithDetails(client, results)
 
-	// 9. 关键词过滤
 	return plugin.FilterResultsByKeyword(enhancedResults, keyword), nil
 }
 
-// parseSearchItem 解析单个搜索结果项
+// parseSearchItem 解析单条搜索结果。
 func (p *ZhizhenAsyncPlugin) parseSearchItem(s *goquery.Selection, keyword string) model.SearchResult {
 	result := model.SearchResult{}
 
-	// 提取详情页链接和ID (修正：使用正确的选择器)
 	detailLink, exists := s.Find(".video-info-header h3 a").First().Attr("href")
 	if !exists {
 		return result
 	}
 
-	// 提取ID
 	matches := detailIDRegex.FindStringSubmatch(detailLink)
 	if len(matches) < 2 {
 		return result
@@ -214,15 +200,12 @@ func (p *ZhizhenAsyncPlugin) parseSearchItem(s *goquery.Selection, keyword strin
 	itemID := matches[1]
 	result.UniqueID = fmt.Sprintf("%s-%s", p.Name(), itemID)
 
-	// 提取标题
 	titleElement := s.Find(".video-info-header h3 a")
 	result.Title = strings.TrimSpace(titleElement.Text())
 
-	// 提取资源类型/质量
 	qualityElement := s.Find(".video-serial")
 	quality := strings.TrimSpace(qualityElement.Text())
 
-	// 提取分类信息
 	var tags []string
 	s.Find(".video-info-aux .tag-link a").Each(func(i int, tag *goquery.Selection) {
 		tagText := strings.TrimSpace(tag.Text())
@@ -232,7 +215,6 @@ func (p *ZhizhenAsyncPlugin) parseSearchItem(s *goquery.Selection, keyword strin
 	})
 	result.Tags = tags
 
-	// 提取导演信息
 	director := ""
 	s.Find(".video-info-items").Each(func(i int, item *goquery.Selection) {
 		title := strings.TrimSpace(item.Find(".video-info-itemtitle").Text())
@@ -241,7 +223,6 @@ func (p *ZhizhenAsyncPlugin) parseSearchItem(s *goquery.Selection, keyword strin
 		}
 	})
 
-	// 提取主演信息
 	var actors []string
 	s.Find(".video-info-items").Each(func(i int, item *goquery.Selection) {
 		title := strings.TrimSpace(item.Find(".video-info-itemtitle").Text())
@@ -255,21 +236,18 @@ func (p *ZhizhenAsyncPlugin) parseSearchItem(s *goquery.Selection, keyword strin
 		}
 	})
 
-	// 提取剧情简介
 	plotElement := s.Find(".video-info-items").FilterFunction(func(i int, item *goquery.Selection) bool {
 		title := strings.TrimSpace(item.Find(".video-info-itemtitle").Text())
 		return strings.Contains(title, "剧情")
 	})
 	plot := strings.TrimSpace(plotElement.Find(".video-info-item").Text())
 
-	// 提取封面图片 (参考 Pan_mogg.js 的选择器)
 	var images []string
 	if picURL, exists := s.Find(".module-item-pic > img").Attr("data-src"); exists && picURL != "" {
 		images = append(images, picURL)
 	}
 	result.Images = images
 
-	// 构建内容描述
 	var contentParts []string
 	if quality != "" {
 		contentParts = append(contentParts, "【"+quality+"】")
@@ -278,7 +256,7 @@ func (p *ZhizhenAsyncPlugin) parseSearchItem(s *goquery.Selection, keyword strin
 		contentParts = append(contentParts, "导演："+director)
 	}
 	if len(actors) > 0 {
-		actorStr := strings.Join(actors[:min(3, len(actors))], "、") // 只显示前3个演员
+		actorStr := strings.Join(actors[:min(3, len(actors))], "、")
 		if len(actors) > 3 {
 			actorStr += "等"
 		}
@@ -289,15 +267,15 @@ func (p *ZhizhenAsyncPlugin) parseSearchItem(s *goquery.Selection, keyword strin
 	}
 
 	result.Content = strings.Join(contentParts, "\n")
-	result.Channel = ""           // 插件搜索结果不设置频道名，只有Telegram频道结果才设置
-	result.Datetime = time.Time{} // 使用零值而不是nil，参考jikepan插件标准
+	result.Channel = ""
+	result.Datetime = time.Time{}
 
 	return result
 }
 
-// isValidNetworkDriveURL 检查URL是否为有效的网盘链接
+// isValidNetworkDriveURL 判断是否为有效网盘链接。
 func (p *ZhizhenAsyncPlugin) isValidNetworkDriveURL(url string) bool {
-	// 过滤掉明显无效的链接
+
 	if strings.Contains(url, "javascript:") ||
 		strings.Contains(url, "#") ||
 		url == "" ||
@@ -305,7 +283,6 @@ func (p *ZhizhenAsyncPlugin) isValidNetworkDriveURL(url string) bool {
 		return false
 	}
 
-	// 检查是否匹配任何支持的网盘格式（16种）
 	return quarkLinkRegex.MatchString(url) ||
 		ucLinkRegex.MatchString(url) ||
 		baiduLinkRegex.MatchString(url) ||
@@ -323,7 +300,7 @@ func (p *ZhizhenAsyncPlugin) isValidNetworkDriveURL(url string) bool {
 		ed2kLinkRegex.MatchString(url)
 }
 
-// determineLinkType 根据URL确定链接类型（支持16种类型）
+// determineLinkType 按正则判断链接类型。
 func (p *ZhizhenAsyncPlugin) determineLinkType(url string) string {
 	switch {
 	case quarkLinkRegex.MatchString(url):
@@ -357,11 +334,11 @@ func (p *ZhizhenAsyncPlugin) determineLinkType(url string) string {
 	case ed2kLinkRegex.MatchString(url):
 		return "ed2k"
 	default:
-		return "" // 不支持的类型返回空字符串
+		return ""
 	}
 }
 
-// extractPassword 从URL中提取密码
+// extractPassword 提取 URL 中的 pwd 参数。
 func (p *ZhizhenAsyncPlugin) extractPassword(url string) string {
 	matches := passwordRegex.FindStringSubmatch(url)
 	if len(matches) > 1 {
@@ -370,13 +347,12 @@ func (p *ZhizhenAsyncPlugin) extractPassword(url string) string {
 	return ""
 }
 
-// enhanceWithDetails 异步获取详情页信息以获取下载链接
+// enhanceWithDetails 并发抓取详情页，补充链接和图片。
 func (p *ZhizhenAsyncPlugin) enhanceWithDetails(client *http.Client, results []model.SearchResult) []model.SearchResult {
 	var enhancedResults []model.SearchResult
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 
-	// 限制并发数
 	semaphore := make(chan struct{}, MaxConcurrency)
 
 	for _, result := range results {
@@ -384,11 +360,9 @@ func (p *ZhizhenAsyncPlugin) enhanceWithDetails(client *http.Client, results []m
 		go func(r model.SearchResult) {
 			defer wg.Done()
 
-			// 获取信号量
 			semaphore <- struct{}{}
 			defer func() { <-semaphore }()
 
-			// 从UniqueID提取ID
 			parts := strings.Split(r.UniqueID, "-")
 			if len(parts) < 2 {
 				mu.Lock()
@@ -399,7 +373,6 @@ func (p *ZhizhenAsyncPlugin) enhanceWithDetails(client *http.Client, results []m
 
 			itemID := parts[1]
 
-			// 检查缓存
 			if cached, ok := detailCache.Load(itemID); ok {
 				if cachedResult, ok := cached.(model.SearchResult); ok {
 					atomic.AddInt64(&cacheHits, 1)
@@ -411,16 +384,13 @@ func (p *ZhizhenAsyncPlugin) enhanceWithDetails(client *http.Client, results []m
 			}
 			atomic.AddInt64(&cacheMisses, 1)
 
-			// 获取详情页链接和图片
 			detailLinks, detailImages := p.fetchDetailLinksAndImages(client, itemID)
 			r.Links = detailLinks
 
-			// 合并图片：优先使用详情页的海报，如果没有则使用搜索结果的图片
 			if len(detailImages) > 0 {
 				r.Images = detailImages
 			}
 
-			// 缓存结果
 			detailCache.Store(itemID, r)
 
 			mu.Lock()
@@ -433,19 +403,18 @@ func (p *ZhizhenAsyncPlugin) enhanceWithDetails(client *http.Client, results []m
 	return enhancedResults
 }
 
-// doRequestWithRetry 带重试机制的HTTP请求
+// doRequestWithRetry 执行重试请求。
 func (p *ZhizhenAsyncPlugin) doRequestWithRetry(req *http.Request, client *http.Client) (*http.Response, error) {
 	maxRetries := 3
 	var lastErr error
 
 	for i := 0; i < maxRetries; i++ {
 		if i > 0 {
-			// 指数退避
+
 			backoff := time.Duration(1<<uint(i-1)) * 200 * time.Millisecond
 			time.Sleep(backoff)
 		}
 
-		// 克隆请求
 		reqClone := req.Clone(req.Context())
 
 		resp, err := client.Do(reqClone)
@@ -462,9 +431,9 @@ func (p *ZhizhenAsyncPlugin) doRequestWithRetry(req *http.Request, client *http.
 	return nil, fmt.Errorf("重试 %d 次后仍然失败: %w", maxRetries, lastErr)
 }
 
-// fetchDetailLinksAndImages 获取详情页的下载链接和图片
+// fetchDetailLinksAndImages 抓取详情页链接和封面图。
 func (p *ZhizhenAsyncPlugin) fetchDetailLinksAndImages(client *http.Client, itemID string) ([]model.Link, []string) {
-	// 性能统计
+
 	start := time.Now()
 	atomic.AddInt64(&detailPageRequests, 1)
 	defer func() {
@@ -474,24 +443,20 @@ func (p *ZhizhenAsyncPlugin) fetchDetailLinksAndImages(client *http.Client, item
 
 	detailURL := fmt.Sprintf("https://xiaomi666.fun/index.php/vod/detail/id/%s.html", itemID)
 
-	// 创建带超时的上下文
 	ctx, cancel := context.WithTimeout(context.Background(), DetailTimeout)
 	defer cancel()
 
-	// 创建请求
 	req, err := http.NewRequestWithContext(ctx, "GET", detailURL, nil)
 	if err != nil {
 		return nil, nil
 	}
 
-	// 设置请求头
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
 	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
 	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
 	req.Header.Set("Connection", "keep-alive")
 	req.Header.Set("Referer", "https://xiaomi666.fun/")
 
-	// 发送请求（带重试）
 	resp, err := p.doRequestWithRetry(req, client)
 	if err != nil {
 		return nil, nil
@@ -510,35 +475,32 @@ func (p *ZhizhenAsyncPlugin) fetchDetailLinksAndImages(client *http.Client, item
 	var links []model.Link
 	var images []string
 
-	// 提取详情页的海报图片 (参考 Pan_mogg.js 的选择器)
 	if posterURL, exists := doc.Find(".mobile-play .lazyload").Attr("data-src"); exists && posterURL != "" {
 		images = append(images, posterURL)
 	}
 
-	// 查找下载链接区域
 	doc.Find("#download-list .module-row-one").Each(func(i int, s *goquery.Selection) {
-		// 从data-clipboard-text属性提取链接
+
 		if linkURL, exists := s.Find("[data-clipboard-text]").Attr("data-clipboard-text"); exists {
-			// 过滤掉无效链接
+
 			if p.isValidNetworkDriveURL(linkURL) {
 				if linkType := p.determineLinkType(linkURL); linkType != "" {
 					link := model.Link{
 						Type:     linkType,
 						URL:      linkURL,
-						Password: "", // 大部分网盘不需要密码
+						Password: "",
 					}
 					links = append(links, link)
 				}
 			}
 		}
 
-		// 也检查直接的href属性
 		s.Find("a[href]").Each(func(j int, a *goquery.Selection) {
 			if linkURL, exists := a.Attr("href"); exists {
-				// 过滤掉无效链接
+
 				if p.isValidNetworkDriveURL(linkURL) {
 					if linkType := p.determineLinkType(linkURL); linkType != "" {
-						// 避免重复添加
+
 						isDuplicate := false
 						for _, existingLink := range links {
 							if existingLink.URL == linkURL {
@@ -564,13 +526,13 @@ func (p *ZhizhenAsyncPlugin) fetchDetailLinksAndImages(client *http.Client, item
 	return links, images
 }
 
-// fetchDetailLinks 获取详情页的下载链接（兼容性方法，仅返回链接）
+// fetchDetailLinks 兼容旧接口，仅返回链接。
 func (p *ZhizhenAsyncPlugin) fetchDetailLinks(client *http.Client, itemID string) []model.Link {
 	links, _ := p.fetchDetailLinksAndImages(client, itemID)
 	return links
 }
 
-// min 返回两个整数中的较小值
+// min 返回两个整数中的较小值。
 func min(a, b int) int {
 	if a < b {
 		return a
@@ -578,7 +540,7 @@ func min(a, b int) int {
 	return b
 }
 
-// GetPerformanceStats 获取性能统计信息
+// GetPerformanceStats 返回运行时指标。
 func (p *ZhizhenAsyncPlugin) GetPerformanceStats() map[string]interface{} {
 	totalSearchRequests := atomic.LoadInt64(&searchRequests)
 	totalDetailRequests := atomic.LoadInt64(&detailPageRequests)
@@ -589,10 +551,10 @@ func (p *ZhizhenAsyncPlugin) GetPerformanceStats() map[string]interface{} {
 
 	var avgSearchTime, avgDetailTime, cacheHitRate float64
 	if totalSearchRequests > 0 {
-		avgSearchTime = float64(totalSearchTime) / float64(totalSearchRequests) / 1e6 // 转换为毫秒
+		avgSearchTime = float64(totalSearchTime) / float64(totalSearchRequests) / 1e6
 	}
 	if totalDetailRequests > 0 {
-		avgDetailTime = float64(totalDetailTime) / float64(totalDetailRequests) / 1e6 // 转换为毫秒
+		avgDetailTime = float64(totalDetailTime) / float64(totalDetailRequests) / 1e6
 	}
 	if totalCacheHits+totalCacheMisses > 0 {
 		cacheHitRate = float64(totalCacheHits) / float64(totalCacheHits+totalCacheMisses) * 100
