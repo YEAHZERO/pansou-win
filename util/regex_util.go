@@ -127,7 +127,7 @@ func CleanBaiduPanURL(url string) string {
 			if strings.Contains(url, "?pwd=") {
 				pwdIdx := strings.Index(url, "?pwd=")
 				if pwdIdx >= 0 && len(url) > pwdIdx+5 { // ?pwd= 有5个字符
-					// 只保留?pwd=后面的4位密码
+			// 只保留 `?pwd=` 后面的 4 位密码
 					pwdEndIdx := pwdIdx + 9 // ?pwd=xxxx 总共9个字符
 					if pwdEndIdx <= len(url) {
 						return url[:pwdEndIdx]
@@ -206,7 +206,7 @@ func CleanUCPanURL(url string) string {
 			if strings.Contains(url, "?public=") {
 				publicIdx := strings.Index(url, "?public=")
 				if publicIdx > 0 {
-					// 确保只保留?public=1这样的参数，不包含后面的文本
+			// 确保只保留 `?public=1` 这样的参数，不包含后续文本
 					if publicIdx+9 <= len(url) { // ?public=1 总共9个字符
 						return url[:publicIdx+9]
 					}

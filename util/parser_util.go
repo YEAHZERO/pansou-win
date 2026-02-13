@@ -100,7 +100,7 @@ func normalizeUCPanURL(url string, password string) string {
 	// 清理URL，确保获取正确的链接部分
 	url = CleanUCPanURL(url)
 
-	// UC网盘链接通常使用?public=1参数表示公开分享
+	// UC 网盘链接通常使用 `?public=1` 参数表示公开分享
 	// 确保链接格式正确，但不添加密码参数
 	return url
 }
