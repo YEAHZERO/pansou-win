@@ -95,7 +95,7 @@ var (
 	
 
 	// 提取码/密码匹配：支持“提取码/密码/pwd/码: XXXX”
-	passwordRegex    = regexp.MustCompile("(?i)(?:\\u63d0\\u53d6\\u7801|\\u5bc6\\u7801|pwd|\\u7801)[\\uff1a:]\\s*([a-zA-Z0-9]{4})")
+	passwordRegex    = regexp.MustCompile("(?i)(?:\u63d0\u53d6\u7801|\u5bc6\u7801|pwd|\u7801)[\uff1a:]\\s*([a-zA-Z0-9]{4})")
 	urlPasswordRegex = regexp.MustCompile(`(?i)\?pwd=([0-9a-zA-Z]+)`)
 	
 
@@ -104,7 +104,7 @@ var (
 	
 
 	// 反爬关键词：页面/响应体出现这些字样时判定为反爬拦截
-	antiCrawlerRegex = regexp.MustCompile("\\u7981\\u6b62\\u4f7f\\u7528\\u5f00\\u53d1\\u8005\\u5de5\\u5177|\\u5077\\u6837\\u5f0f\\u6b7b\\u5168\\u5bb6|\\u53cd\\u722c\\u866b|\\u9632\\u722c")
+	antiCrawlerRegex = regexp.MustCompile("\u7981\u6b62\u4f7f\u7528\u5f00\u53d1\u8005\u5de5\u5177|\u5077\u6837\u5f0f\u6b7b\u5168\u5bb6|\u53cd\u722c\u866b|\u9632\u722c")
 )
 
 
