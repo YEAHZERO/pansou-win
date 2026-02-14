@@ -75,7 +75,10 @@ func logAsyncCacheWithKeyword(keyword, cacheKey string, format string, args ...i
 	// 将缓存键替换为简化版本+关键词
 	shortKey := cacheKey
 	if len(cacheKey) > 8 {
-		shortKey = cacheKey[:8] + "..."
+		r := []rune(cacheKey)
+		if len(r) > 8 {
+			shortKey = string(r[:8]) + "..."
+		}
 	}
 
 	// 替换格式字符串中的缓存键

@@ -882,6 +882,15 @@ func (p *PiozAsyncPlugin) parseDetailURLFromUniqueID(uniqueID string) string {
 func (p *PiozAsyncPlugin) tryTransferAPI(client *http.Client, result model.SearchResult) []model.Link {
 
 	resourceID := p.extractResourceID(result.UniqueID)
+	if resourceID == "" {
+		// Fallback: parse detail URL and recover ID from /detail/{id}.
+		detailURL := p.parseDetailURLFromUniqueID(result.UniqueID)
+		if detailURL != "" {
+			if matches := detailIDRegex.FindStringSubmatch(detailURL); len(matches) > 1 {
+				resourceID = matches[1]
+			}
+		}
+	}
 	
 	if resourceID == "" {
 		return nil
@@ -1011,6 +1020,27 @@ func (p *PiozAsyncPlugin) extractLinksFromDocument(doc *goquery.Document) []mode
 		href, exists := s.Attr("href")
 		if exists && p.isValidNetworkDriveURL(href) {
 			urls = append(urls, href)
+		}
+	})
+
+	// Extract URLs embedded in script blocks.
+	doc.Find("script").Each(func(i int, s *goquery.Selection) {
+		scriptText := s.Text()
+		if scriptText != "" {
+			urls = append(urls, p.extractAllURLs(scriptText)...)
+		}
+	})
+
+	// Extract URLs from common data attributes and onclick handlers.
+	attrNames := []string{"href", "data-href", "data-url", "data-link", "value"}
+	doc.Find("*").Each(func(i int, s *goquery.Selection) {
+		for _, attr := range attrNames {
+			if v, ok := s.Attr(attr); ok && p.isValidNetworkDriveURL(v) {
+				urls = append(urls, v)
+			}
+		}
+		if onclick, ok := s.Attr("onclick"); ok && onclick != "" {
+			urls = append(urls, p.extractAllURLs(onclick)...)
 		}
 	})
 	
