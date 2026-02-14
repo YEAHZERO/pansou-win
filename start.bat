@@ -43,7 +43,7 @@ set CHANNELS=
 
 REM Plugin configuration - MUST SET THIS
 set ASYNC_PLUGIN_ENABLED=true
-set ENABLED_PLUGINS=pioz
+set ENABLED_PLUGINS=pioz,pansearch,wanou,xdpan,zhizhen
 
 REM Performance configuration optimized
 set CONCURRENCY=15

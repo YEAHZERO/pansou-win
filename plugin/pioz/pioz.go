@@ -183,6 +183,7 @@ type PiozAsyncPlugin struct {
 	optimizedClient    *http.Client
 	userAgents         []string
 	currentUserAgent   string
+	linkPool           sync.Pool
 }
 
 
@@ -226,7 +227,23 @@ func NewPiozPlugin() *PiozAsyncPlugin {
 		optimizedClient:  createOptimizedHTTPClient(),
 		userAgents:       userAgents,
 		currentUserAgent: userAgents[randomIndex],
+		linkPool: sync.Pool{
+			New: func() interface{} {
+				return &model.Link{}
+			},
+		},
 	}
+}
+
+func (p *PiozAsyncPlugin) getLink() *model.Link {
+	return p.linkPool.Get().(*model.Link)
+}
+
+func (p *PiozAsyncPlugin) putLink(link *model.Link) {
+	link.Type = ""
+	link.URL = ""
+	link.Password = ""
+	p.linkPool.Put(link)
 }
 
 
