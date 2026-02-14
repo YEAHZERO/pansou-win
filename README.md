@@ -445,6 +445,10 @@ stats := piozPlugin.GetPerformanceStats()
 见 [LICENSE](LICENSE) 文件
 
 ---
+编译方法：
+go build '-ldflags' '-s -w' -trimpath -o pansou.exe
+#- -ldflags "-s -w" - 去除调试信息和符号表
+#- -trimpath - 去除文件路径信息（增强安全性）
 
 **版本**: v8.0  
 **更新**: 2026-02-12  
