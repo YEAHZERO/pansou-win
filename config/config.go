@@ -1,6 +1,8 @@
 package config
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -571,16 +573,33 @@ func getAuthTokenExpiry() time.Duration {
 // 从环境变量获取JWT密钥，如果未设置则生成随机密钥
 func getAuthJWTSecret() string {
 	secret := os.Getenv("AUTH_JWT_SECRET")
-	if secret == "" {
-		// 生成随机密钥（32字节）
-		import_crypto := "crypto/rand"
-		import_encoding := "encoding/base64"
-		_ = import_crypto
-		_ = import_encoding
-		// 注意：实际使用时应该使用crypto/rand生成随机密钥
-		// 这里为了简化，使用时间戳作为临时密钥
-		secret = "pansou-default-secret-" + strconv.FormatInt(time.Now().Unix(), 10)
+	if secret != "" {
+		return secret
 	}
+
+	// 持久化到本地文件，避免服务重启后JWT密钥变化导致所有登录失效。
+	cachePath := getCachePath()
+	secretFile := filepath.Join(cachePath, ".jwt_secret")
+
+	if data, err := os.ReadFile(secretFile); err == nil {
+		existing := strings.TrimSpace(string(data))
+		if existing != "" {
+			return existing
+		}
+	}
+
+	// 文件不存在或为空，生成新密钥并落盘。
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err == nil {
+		secret = base64.StdEncoding.EncodeToString(buf)
+	} else {
+		// 极端情况下回退到时间戳方案，保证服务可启动。
+		secret = "pansou-fallback-secret-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	}
+
+	_ = os.MkdirAll(cachePath, 0o755)
+	_ = os.WriteFile(secretFile, []byte(secret), 0o600)
+
 	return secret
 }
 

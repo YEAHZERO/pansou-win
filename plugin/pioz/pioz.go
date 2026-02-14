@@ -77,7 +77,8 @@ func init() {
 var (
 
 	// 网盘链接匹配（支持多种类型）
-	quarkLinkRegex      = regexp.MustCompile(`https?://pan\.quark\.cn/s/[0-9a-zA-Z]{12,}`)
+	quarkLinkRegex      = regexp.MustCompile(`https?://pan\.quark\.cn/s/[0-9a-zA-Z]{6,}`)
+	quarkLinkNoSchemeRegex = regexp.MustCompile(`(?i)\bpan\.quark\.cn/s/[0-9a-zA-Z]{6,}\b`)
 	baiduLinkRegex      = regexp.MustCompile(`https?://pan\.baidu\.com/s/[0-9a-zA-Z_\-]+(?:\?pwd=[0-9a-zA-Z]+)?`)
 	aliyunLinkRegex     = regexp.MustCompile(`https?://(?:www\.)?(?:aliyundrive\.com|alipan\.com)/s/[0-9a-zA-Z]+`)
 	ucLinkRegex         = regexp.MustCompile(`https?://drive\.uc\.cn/s/[0-9a-zA-Z]+(?:\?[^"'\s]*)?`)
@@ -92,6 +93,10 @@ var (
 	pikpakLinkRegex     = regexp.MustCompile(`https?://mypikpak\.com/s/[0-9a-zA-Z]+`)
 	magnetLinkRegex     = regexp.MustCompile(`magnet:\?xt=urn:btih:[0-9a-fA-F]{40}`)
 	ed2kLinkRegex       = regexp.MustCompile(`ed2k://\|file\|.+\|\d+\|[0-9a-fA-F]{32}\|/`)
+	escapedHTTPURLRegex = regexp.MustCompile(`https?:\\/?\\/?[^\s"'<>]+`)
+	quotedPathRegex     = regexp.MustCompile(`["'](\/[^"']{2,})["']`)
+	locationAssignRegex = regexp.MustCompile(`(?i)(?:location\.href|window\.location|window\.open|url)\s*[:=]\s*["']([^"']+)["']`)
+	jsInvokeRegex       = regexp.MustCompile(`([a-zA-Z_][a-zA-Z0-9_]*)\(([^)]*)\)`)
 	
 
 	// 提取码/密码匹配：支持“提取码/密码/pwd/码: XXXX”
@@ -807,6 +812,14 @@ func (p *PiozAsyncPlugin) enhanceWithDetails(client *http.Client, results []mode
 	}
 	
 	wg.Wait()
+
+	withLinks := 0
+	for _, r := range enhancedResults {
+		if len(r.Links) > 0 {
+			withLinks++
+		}
+	}
+	fmt.Printf("[%s] 详情增强完成: 输入=%d, 输出=%d, 含链接=%d\n", p.Name(), len(results), len(enhancedResults), withLinks)
 	return enhancedResults
 }
 
@@ -824,11 +837,18 @@ func (p *PiozAsyncPlugin) fetchResourceInfo(client *http.Client, result model.Se
 
 	links := p.tryTransferAPI(client, result)
 	if len(links) > 0 {
+		fmt.Printf("[%s] transfer命中: title=%s links=%d\n", p.Name(), result.Title, len(links))
 		return links
 	}
 	
 
-	return p.parseResourceDetailPage(client, result)
+	links = p.parseResourceDetailPage(client, result)
+	if len(links) > 0 {
+		fmt.Printf("[%s] detail命中: title=%s links=%d\n", p.Name(), result.Title, len(links))
+	} else {
+		fmt.Printf("[%s] detail未命中: title=%s uniqueID=%s\n", p.Name(), result.Title, result.UniqueID)
+	}
+	return links
 }
 
 // extractResourceID 从 UniqueID 中提取资源 ID（供 transfer API 使用）。
@@ -893,6 +913,7 @@ func (p *PiozAsyncPlugin) tryTransferAPI(client *http.Client, result model.Searc
 	}
 	
 	if resourceID == "" {
+		fmt.Printf("[%s] transfer跳过: 无resourceID uniqueID=%s\n", p.Name(), result.UniqueID)
 		return nil
 	}
 	
@@ -917,6 +938,7 @@ func (p *PiozAsyncPlugin) tryTransferAPI(client *http.Client, result model.Searc
 	
 	resp, err := p.doRequestWithRetry(client, req)
 	if err != nil {
+		fmt.Printf("[%s] transfer失败: request err=%v id=%s\n", p.Name(), err, resourceID)
 		return nil
 	}
 	defer resp.Body.Close()
@@ -928,6 +950,15 @@ func (p *PiozAsyncPlugin) tryTransferAPI(client *http.Client, result model.Searc
 	}
 	
 	if resp.StatusCode != 200 {
+		fmt.Printf("[%s] transfer失败: status=%d id=%s\n", p.Name(), resp.StatusCode, resourceID)
+		// Fallback: endpoint might have changed; probe common API variants.
+		if resp.StatusCode == http.StatusNotFound {
+			if links := p.tryTransferEndpointFallbacks(client, resourceID); len(links) > 0 {
+				transferCache.Store(cacheKey, links)
+				fmt.Printf("[%s] transfer兜底命中: id=%s links=%d\n", p.Name(), resourceID, len(links))
+				return links
+			}
+		}
 		return nil
 	}
 	
@@ -938,21 +969,169 @@ func (p *PiozAsyncPlugin) tryTransferAPI(client *http.Client, result model.Searc
 	
 	var transferResp TransferResponse
 	if err := json.Unmarshal(body, &transferResp); err != nil {
+		fmt.Printf("[%s] transfer失败: unmarshal err=%v id=%s body=%s\n", p.Name(), err, resourceID, string(body))
 		return nil
 	}
 	
 	if !transferResp.Success || transferResp.Data.URL == "" {
+		fmt.Printf("[%s] transfer无结果: success=%v id=%s body=%s\n", p.Name(), transferResp.Success, resourceID, string(body))
 		return nil
 	}
 	
 
 	link := p.createLinkFromURL(transferResp.Data.URL, transferResp.Data.Password)
 	links := []model.Link{link}
+
+	// Fallback: transfer may return an intermediate redirect URL.
+	if !p.isValidNetworkDriveURL(link.URL) {
+		if redirected := p.resolveRedirectShareLinksWithReferer(client, link.URL, SiteBaseURL); len(redirected) > 0 {
+			for i := range redirected {
+				if redirected[i].Password == "" {
+					redirected[i].Password = transferResp.Data.Password
+				}
+			}
+			links = redirected
+		}
+	}
 	
 
 	transferCache.Store(cacheKey, links)
+	fmt.Printf("[%s] transfer成功: id=%s url=%s\n", p.Name(), resourceID, links[0].URL)
 	
 	return links
+}
+
+// tryTransferEndpointFallbacks 探测常见 transfer 类接口变体（路径/方法），用于应对站点接口改版。
+func (p *PiozAsyncPlugin) tryTransferEndpointFallbacks(client *http.Client, resourceID string) []model.Link {
+	type endpointProbe struct {
+		method      string
+		url         string
+		contentType string
+		body        string
+	}
+
+	apiCandidates := []string{
+		fmt.Sprintf("%s/transfer?id=%s", APIBaseURL, url.QueryEscape(resourceID)),
+		fmt.Sprintf("%s/transfer/%s", APIBaseURL, url.PathEscape(resourceID)),
+		fmt.Sprintf("%s/resource/transfer?id=%s", APIBaseURL, url.QueryEscape(resourceID)),
+		fmt.Sprintf("%s/detail/transfer?id=%s", APIBaseURL, url.QueryEscape(resourceID)),
+		fmt.Sprintf("%s/share?id=%s", APIBaseURL, url.QueryEscape(resourceID)),
+		fmt.Sprintf("%s/getShare?id=%s", APIBaseURL, url.QueryEscape(resourceID)),
+		fmt.Sprintf("%s/link?id=%s", APIBaseURL, url.QueryEscape(resourceID)),
+		fmt.Sprintf("%s/source?id=%s", APIBaseURL, url.QueryEscape(resourceID)),
+	}
+
+	probes := make([]endpointProbe, 0, len(apiCandidates)*3)
+	for _, u := range apiCandidates {
+		probes = append(probes, endpointProbe{method: "GET", url: u})
+		probes = append(probes, endpointProbe{
+			method:      "POST",
+			url:         u,
+			contentType: "application/x-www-form-urlencoded",
+			body:        "id=" + url.QueryEscape(resourceID),
+		})
+		probes = append(probes, endpointProbe{
+			method:      "POST",
+			url:         u,
+			contentType: "application/json",
+			body:        fmt.Sprintf(`{"id":"%s","resource_id":"%s"}`, resourceID, resourceID),
+		})
+	}
+
+	for _, probe := range probes {
+		var bodyReader io.Reader
+		if probe.body != "" {
+			bodyReader = strings.NewReader(probe.body)
+		}
+
+		req, err := http.NewRequest(probe.method, probe.url, bodyReader)
+		if err != nil {
+			continue
+		}
+		p.setAPIHeaders(req)
+		if probe.contentType != "" {
+			req.Header.Set("Content-Type", probe.contentType)
+		}
+		p.addSessionCookies(req)
+
+		resp, err := p.doRequestWithRetry(client, req)
+		if err != nil {
+			continue
+		}
+
+		raw, readErr := p.readCompressedBody(resp)
+		resp.Body.Close()
+		if readErr != nil || len(raw) == 0 {
+			continue
+		}
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			continue
+		}
+
+		links := p.extractLinksFromAnyPayload(raw)
+		if len(links) > 0 {
+			fmt.Printf("[%s] transfer兜底接口命中: %s %s links=%d\n", p.Name(), probe.method, probe.url, len(links))
+			return links
+		}
+	}
+
+	return nil
+}
+
+// extractLinksFromAnyPayload 从 JSON/文本响应中尽可能提取网盘链接。
+func (p *PiozAsyncPlugin) extractLinksFromAnyPayload(payload []byte) []model.Link {
+	text := string(payload)
+	urls := p.extractAllURLs(text)
+
+	var parsed interface{}
+	if err := json.Unmarshal(payload, &parsed); err == nil {
+		flat := p.flattenStringValues(parsed)
+		for _, s := range flat {
+			urls = append(urls, p.extractAllURLs(s)...)
+		}
+	}
+
+	seen := make(map[string]struct{}, len(urls))
+	links := make([]model.Link, 0, len(urls))
+	for _, u := range urls {
+		if !p.isValidNetworkDriveURL(u) {
+			continue
+		}
+		if _, ok := seen[u]; ok {
+			continue
+		}
+		seen[u] = struct{}{}
+		pw := p.extractPasswordFromURL(u)
+		if pw == "" {
+			pw = p.extractPasswordFromText(text)
+		}
+		links = append(links, p.createLinkFromURL(u, pw))
+	}
+	return links
+}
+
+// flattenStringValues 递归提取任意 JSON 结构里的字符串值。
+func (p *PiozAsyncPlugin) flattenStringValues(v interface{}) []string {
+	var out []string
+	var walk func(interface{})
+	walk = func(node interface{}) {
+		switch t := node.(type) {
+		case string:
+			if t != "" {
+				out = append(out, t)
+			}
+		case map[string]interface{}:
+			for _, vv := range t {
+				walk(vv)
+			}
+		case []interface{}:
+			for _, vv := range t {
+				walk(vv)
+			}
+		}
+	}
+	walk(v)
+	return out
 }
 
 
@@ -962,7 +1141,13 @@ func (p *PiozAsyncPlugin) parseResourceDetailPage(client *http.Client, result mo
 	detailURL := p.parseDetailURLFromUniqueID(result.UniqueID)
 	
 	if detailURL == "" {
+		fmt.Printf("[%s] detail跳过: 无detailURL uniqueID=%s\n", p.Name(), result.UniqueID)
 		return nil
+	}
+
+	// Try redirect chain first (some pages jump to share links via 302).
+	if redirected := p.resolveRedirectShareLinksWithReferer(client, detailURL, SiteBaseURL); len(redirected) > 0 {
+		return redirected
 	}
 	
 	ctx, cancel := context.WithTimeout(context.Background(), DetailTimeout)
@@ -978,6 +1163,7 @@ func (p *PiozAsyncPlugin) parseResourceDetailPage(client *http.Client, result mo
 	
 	resp, err := client.Do(req)
 	if err != nil {
+		fmt.Printf("[%s] detail失败: request err=%v url=%s\n", p.Name(), err, detailURL)
 		return nil
 	}
 	defer resp.Body.Close()
@@ -989,6 +1175,7 @@ func (p *PiozAsyncPlugin) parseResourceDetailPage(client *http.Client, result mo
 	}
 	
 	if resp.StatusCode != 200 {
+		fmt.Printf("[%s] detail失败: status=%d url=%s\n", p.Name(), resp.StatusCode, detailURL)
 		return nil
 	}
 	
@@ -999,11 +1186,436 @@ func (p *PiozAsyncPlugin) parseResourceDetailPage(client *http.Client, result mo
 
 	doc, err := goquery.NewDocumentFromReader(bytes.NewReader(body))
 	if err != nil {
+		fmt.Printf("[%s] detail失败: parse err=%v url=%s\n", p.Name(), err, detailURL)
 		return nil
 	}
 	
 
-	return p.extractLinksFromDocument(doc)
+	links := p.extractLinksFromDocument(doc)
+	if len(links) == 0 {
+		// Fallback: emulate consent click/submit flow when page requires "了解并同意获取".
+		if consentLinks := p.tryConsentFlow(client, doc, detailURL); len(consentLinks) > 0 {
+			for _, link := range consentLinks {
+				if !p.containsLink(links, link) {
+					links = append(links, link)
+				}
+			}
+		}
+	}
+	if len(links) == 0 {
+		// Fallback: try to resolve intermediate jump URLs from detail page attributes/scripts.
+		candidates := p.extractRedirectCandidatesFromDocument(doc, detailURL)
+		for _, candidate := range candidates {
+			if redirected := p.resolveRedirectShareLinksWithReferer(client, candidate, detailURL); len(redirected) > 0 {
+				for _, link := range redirected {
+					if !p.containsLink(links, link) {
+						links = append(links, link)
+					}
+				}
+			}
+		}
+	}
+	fmt.Printf("[%s] detail解析: url=%s links=%d\n", p.Name(), detailURL, len(links))
+	return links
+}
+
+// tryConsentFlow 尝试自动通过“了解并同意获取”中转页，再提取最终网盘链接。
+func (p *PiozAsyncPlugin) tryConsentFlow(client *http.Client, doc *goquery.Document, detailURL string) []model.Link {
+	pageText := strings.TrimSpace(doc.Text())
+	if pageText == "" {
+		return nil
+	}
+
+	// 只在明显的同意页触发，避免无谓请求。
+	if !strings.Contains(pageText, "了解并同意获取") &&
+		!strings.Contains(pageText, "点击获取") &&
+		!strings.Contains(pageText, "免责声明") {
+		return nil
+	}
+	fmt.Printf("[%s] 识别到同意页: %s\n", p.Name(), detailURL)
+	fmt.Printf("[%s] 同意页结构: form=%d button=%d a=%d\n", p.Name(), doc.Find("form").Length(), doc.Find("button").Length(), doc.Find("a").Length())
+
+	var links []model.Link
+
+	// 1) 先尝试 form 提交。
+	formLinks := p.submitConsentForms(client, doc, detailURL)
+	if len(formLinks) > 0 {
+		fmt.Printf("[%s] 同意页表单提交成功: links=%d url=%s\n", p.Name(), len(formLinks), detailURL)
+	}
+	for _, link := range formLinks {
+		if !p.containsLink(links, link) {
+			links = append(links, link)
+		}
+	}
+	if len(links) > 0 {
+		return links
+	}
+
+	// 2) 再尝试按钮/属性中的跳转 URL。
+	candidates := p.extractRedirectCandidatesFromDocument(doc, detailURL)
+	if len(candidates) == 0 {
+		// If page is JS-rendered, try common jump URL templates based on detail ID.
+		if matches := detailIDRegex.FindStringSubmatch(detailURL); len(matches) > 1 {
+			id := matches[1]
+			candidates = append(candidates,
+				fmt.Sprintf("%s/go/%s", SiteBaseURL, id),
+				fmt.Sprintf("%s/jump/%s", SiteBaseURL, id),
+				fmt.Sprintf("%s/redirect/%s", SiteBaseURL, id),
+				fmt.Sprintf("%s/link/%s", SiteBaseURL, id),
+				fmt.Sprintf("%s/get/%s", SiteBaseURL, id),
+				fmt.Sprintf("%s/api/go/%s", SiteBaseURL, id),
+				fmt.Sprintf("%s/api/jump/%s", SiteBaseURL, id),
+				fmt.Sprintf("%s/api/redirect/%s", SiteBaseURL, id),
+				fmt.Sprintf("%s/api/go?id=%s", SiteBaseURL, url.QueryEscape(id)),
+				fmt.Sprintf("%s/api/jump?id=%s", SiteBaseURL, url.QueryEscape(id)),
+			)
+		}
+	}
+	fmt.Printf("[%s] 同意页候选跳转: %d url=%s\n", p.Name(), len(candidates), detailURL)
+	if len(candidates) > 0 {
+		limit := len(candidates)
+		if limit > 5 {
+			limit = 5
+		}
+		for i := 0; i < limit; i++ {
+			fmt.Printf("[%s] 同意页候选[%d]=%s\n", p.Name(), i, candidates[i])
+		}
+	}
+	for _, candidate := range candidates {
+		if redirected := p.resolveRedirectShareLinksWithReferer(client, candidate, detailURL); len(redirected) > 0 {
+			for _, link := range redirected {
+				if !p.containsLink(links, link) {
+					links = append(links, link)
+				}
+			}
+		}
+		if len(links) == 0 {
+			if probed := p.probeJumpEndpointVariants(client, candidate, detailURL); len(probed) > 0 {
+				for _, link := range probed {
+					if !p.containsLink(links, link) {
+						links = append(links, link)
+					}
+				}
+			}
+		}
+	}
+
+	return links
+}
+
+// submitConsentForms 提交详情页中的同意表单，返回可提取到的网盘链接。
+func (p *PiozAsyncPlugin) submitConsentForms(client *http.Client, doc *goquery.Document, detailURL string) []model.Link {
+	var links []model.Link
+	baseURL, _ := url.Parse(detailURL)
+
+	doc.Find("form").Each(func(i int, form *goquery.Selection) {
+		action := strings.TrimSpace(form.AttrOr("action", ""))
+		method := strings.ToUpper(strings.TrimSpace(form.AttrOr("method", "GET")))
+		if method == "" {
+			method = "GET"
+		}
+
+		target := detailURL
+		if action != "" && baseURL != nil {
+			if u, err := url.Parse(action); err == nil && u != nil {
+				target = baseURL.ResolveReference(u).String()
+			}
+		}
+		if target == "" {
+			return
+		}
+
+		values := url.Values{}
+		form.Find("input,textarea,select,button").Each(func(_ int, field *goquery.Selection) {
+			name := strings.TrimSpace(field.AttrOr("name", ""))
+			if name == "" {
+				return
+			}
+			value := field.AttrOr("value", "")
+			fieldType := strings.ToLower(strings.TrimSpace(field.AttrOr("type", "")))
+			if (fieldType == "checkbox" || fieldType == "radio") && !field.Is("[checked]") {
+				return
+			}
+			if value == "" {
+				switch fieldType {
+				case "checkbox", "radio":
+					value = "on"
+				case "submit":
+					value = "1"
+				}
+			}
+			values.Set(name, value)
+		})
+
+		if len(values) == 0 {
+			values.Set("agree", "1")
+			values.Set("consent", "1")
+			values.Set("confirm", "1")
+			values.Set("submit", "1")
+		}
+
+		fmt.Printf("[%s] 同意页提交: method=%s action=%s fields=%d\n", p.Name(), method, target, len(values))
+
+		var req *http.Request
+		var err error
+		if method == "POST" {
+			req, err = http.NewRequest("POST", target, strings.NewReader(values.Encode()))
+			if err != nil {
+				return
+			}
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		} else {
+			u, e := url.Parse(target)
+			if e != nil || u == nil {
+				return
+			}
+			q := u.Query()
+			for k, v := range values {
+				for _, vv := range v {
+					q.Set(k, vv)
+				}
+			}
+			u.RawQuery = q.Encode()
+			req, err = http.NewRequest("GET", u.String(), nil)
+			if err != nil {
+				return
+			}
+		}
+
+		p.setStealthHeaders(req)
+		p.addSessionCookies(req)
+
+		resp, err := p.doRequestWithRetry(client, req)
+		if err != nil {
+			return
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode >= 300 && resp.StatusCode < 400 {
+			location := strings.TrimSpace(resp.Header.Get("Location"))
+			fmt.Printf("[%s] 同意页返回302: location=%s\n", p.Name(), location)
+			if location != "" {
+				next, err := req.URL.Parse(location)
+				if err == nil && next != nil {
+					if redirected := p.resolveRedirectShareLinks(client, next.String()); len(redirected) > 0 {
+						for _, link := range redirected {
+							if !p.containsLink(links, link) {
+								links = append(links, link)
+							}
+						}
+					}
+				}
+			}
+			return
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			fmt.Printf("[%s] 同意页返回: status=%d\n", p.Name(), resp.StatusCode)
+			return
+		}
+
+		body, err := p.readCompressedBody(resp)
+		if err != nil {
+			return
+		}
+		text := string(body)
+		for _, u := range p.extractAllURLs(text) {
+			if p.isValidNetworkDriveURL(u) {
+				link := p.createLinkFromURL(u, p.extractPasswordFromText(text))
+				if !p.containsLink(links, link) {
+					links = append(links, link)
+				}
+			}
+		}
+	})
+
+	return links
+}
+
+// probeJumpEndpointVariants 对可疑跳转接口做 GET/POST 变体探测，适配前端按钮触发型页面。
+func (p *PiozAsyncPlugin) probeJumpEndpointVariants(client *http.Client, candidateURL, detailURL string) []model.Link {
+	if candidateURL == "" {
+		return nil
+	}
+
+	detailID := ""
+	if matches := detailIDRegex.FindStringSubmatch(detailURL); len(matches) > 1 {
+		detailID = matches[1]
+	}
+
+	paramSets := []url.Values{
+		{"id": []string{detailID}, "agree": []string{"1"}, "confirm": []string{"1"}},
+		{"rid": []string{detailID}, "agree": []string{"1"}, "confirm": []string{"1"}},
+		{"post_id": []string{detailID}, "agree": []string{"1"}, "confirm": []string{"1"}},
+		{"resource_id": []string{detailID}, "agree": []string{"1"}, "confirm": []string{"1"}},
+	}
+
+	for _, vals := range paramSets {
+		if detailID == "" {
+			delete(vals, "id")
+			delete(vals, "rid")
+			delete(vals, "post_id")
+			delete(vals, "resource_id")
+		}
+
+		// GET probe
+		if u, err := url.Parse(candidateURL); err == nil && u != nil {
+			q := u.Query()
+			for k, v := range vals {
+				for _, vv := range v {
+					if vv != "" {
+						q.Set(k, vv)
+					}
+				}
+			}
+			u.RawQuery = q.Encode()
+			req, err := http.NewRequest("GET", u.String(), nil)
+			if err == nil {
+				p.setStealthHeaders(req)
+				req.Header.Set("Referer", detailURL)
+				req.Header.Set("X-Requested-With", "XMLHttpRequest")
+				p.addSessionCookies(req)
+
+				resp, err := p.doRequestWithRetry(client, req)
+				if err == nil {
+					body, readErr := p.readCompressedBody(resp)
+					resp.Body.Close()
+					if readErr == nil {
+						if links := p.extractLinksFromAnyPayload(body); len(links) > 0 {
+							fmt.Printf("[%s] 候选接口GET命中: %s links=%d\n", p.Name(), u.String(), len(links))
+							return links
+						}
+					}
+				}
+			}
+		}
+
+		// POST form probe
+		req, err := http.NewRequest("POST", candidateURL, strings.NewReader(vals.Encode()))
+		if err != nil {
+			continue
+		}
+		p.setStealthHeaders(req)
+		req.Header.Set("Referer", detailURL)
+		req.Header.Set("X-Requested-With", "XMLHttpRequest")
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+		p.addSessionCookies(req)
+
+		resp, err := p.doRequestWithRetry(client, req)
+		if err != nil {
+			continue
+		}
+		body, readErr := p.readCompressedBody(resp)
+		resp.Body.Close()
+		if readErr != nil {
+			continue
+		}
+		if links := p.extractLinksFromAnyPayload(body); len(links) > 0 {
+			fmt.Printf("[%s] 候选接口POST命中: %s links=%d\n", p.Name(), candidateURL, len(links))
+			return links
+		}
+	}
+
+	return nil
+}
+
+func (p *PiozAsyncPlugin) resolveRedirectShareLinks(client *http.Client, startURL string) []model.Link {
+	return p.resolveRedirectShareLinksWithReferer(client, startURL, "")
+}
+
+func (p *PiozAsyncPlugin) resolveRedirectShareLinksWithReferer(client *http.Client, startURL, referer string) []model.Link {
+	if startURL == "" {
+		return nil
+	}
+
+	current := startURL
+	visited := make(map[string]struct{}, 8)
+
+	for i := 0; i < 6; i++ {
+		if _, ok := visited[current]; ok {
+			return nil
+		}
+		visited[current] = struct{}{}
+
+		ctx, cancel := context.WithTimeout(context.Background(), DetailTimeout)
+		req, err := http.NewRequestWithContext(ctx, "GET", current, nil)
+		if err != nil {
+			cancel()
+			return nil
+		}
+		p.setStealthHeaders(req)
+		if referer != "" {
+			req.Header.Set("Referer", referer)
+		}
+		p.addSessionCookies(req)
+
+		resp, err := client.Do(req)
+		if err != nil {
+			cancel()
+			return nil
+		}
+
+		if resp.StatusCode >= 300 && resp.StatusCode < 400 {
+			location := strings.TrimSpace(resp.Header.Get("Location"))
+			resp.Body.Close()
+			cancel()
+			if location == "" {
+				return nil
+			}
+
+			nextURL, err := req.URL.Parse(location)
+			if err != nil || nextURL == nil {
+				return nil
+			}
+			referer = current
+			current = nextURL.String()
+			if p.isValidNetworkDriveURL(current) {
+				return []model.Link{p.createLinkFromURL(current, "")}
+			}
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			cancel()
+			return nil
+		}
+
+		body, err := p.readCompressedBody(resp)
+		resp.Body.Close()
+		cancel()
+		if err != nil {
+			return nil
+		}
+
+		pageText := string(body)
+		urls := p.extractAllURLs(pageText)
+		for _, u := range urls {
+			if p.isValidNetworkDriveURL(u) {
+				return []model.Link{p.createLinkFromURL(u, p.extractPasswordFromText(pageText))}
+			}
+		}
+
+		// Not a direct share page yet: attempt one more consent/jump extraction recursively.
+		doc, err := goquery.NewDocumentFromReader(bytes.NewReader(body))
+		if err == nil {
+			if consentLinks := p.tryConsentFlow(client, doc, current); len(consentLinks) > 0 {
+				return consentLinks
+			}
+			candidates := p.extractRedirectCandidatesFromDocument(doc, current)
+			for _, candidate := range candidates {
+				if _, ok := visited[candidate]; ok {
+					continue
+				}
+				if redirected := p.resolveRedirectShareLinksWithReferer(client, candidate, current); len(redirected) > 0 {
+					return redirected
+				}
+			}
+		}
+		return nil
+	}
+
+	return nil
 }
 
 
@@ -1035,8 +1647,11 @@ func (p *PiozAsyncPlugin) extractLinksFromDocument(doc *goquery.Document) []mode
 	attrNames := []string{"href", "data-href", "data-url", "data-link", "value"}
 	doc.Find("*").Each(func(i int, s *goquery.Selection) {
 		for _, attr := range attrNames {
-			if v, ok := s.Attr(attr); ok && p.isValidNetworkDriveURL(v) {
-				urls = append(urls, v)
+			if v, ok := s.Attr(attr); ok {
+				urls = append(urls, p.extractAllURLs(v)...)
+				if p.isValidNetworkDriveURL(v) {
+					urls = append(urls, v)
+				}
 			}
 		}
 		if onclick, ok := s.Attr("onclick"); ok && onclick != "" {
@@ -1071,10 +1686,156 @@ func (p *PiozAsyncPlugin) extractLinksFromDocument(doc *goquery.Document) []mode
 	return links
 }
 
+// extractRedirectCandidatesFromDocument 收集详情页中可能的中转地址（如 /go/xxx、/jump?url=...）。
+func (p *PiozAsyncPlugin) extractRedirectCandidatesFromDocument(doc *goquery.Document, detailURL string) []string {
+	candidates := make([]string, 0, 16)
+	seen := make(map[string]struct{}, 16)
+
+	base, _ := url.Parse(detailURL)
+	addCandidate := func(raw string) {
+		raw = strings.TrimSpace(raw)
+		if raw == "" || strings.HasPrefix(strings.ToLower(raw), "javascript:") || raw == "#" {
+			return
+		}
+
+		raw = p.normalizeEscapedTextForURLExtraction(raw)
+
+		// If a direct share URL appears after normalization, keep it.
+		for _, u := range p.extractAllURLs(raw) {
+			if p.isValidNetworkDriveURL(u) {
+				if _, ok := seen[u]; !ok {
+					seen[u] = struct{}{}
+					candidates = append(candidates, u)
+				}
+			}
+		}
+
+		u, err := url.Parse(raw)
+		if err != nil || u == nil {
+			return
+		}
+
+		if !u.IsAbs() {
+			if base == nil {
+				return
+			}
+			u = base.ResolveReference(u)
+		}
+
+		s := u.String()
+		if s == "" {
+			return
+		}
+
+		lower := strings.ToLower(s)
+		if strings.Contains(lower, "/detail/") {
+			return
+		}
+		if strings.HasSuffix(lower, ".css") ||
+			strings.HasSuffix(lower, ".js") ||
+			strings.HasSuffix(lower, ".png") ||
+			strings.HasSuffix(lower, ".jpg") ||
+			strings.HasSuffix(lower, ".jpeg") ||
+			strings.HasSuffix(lower, ".svg") ||
+			strings.HasSuffix(lower, ".ico") ||
+			strings.Contains(lower, "favicon") {
+			return
+		}
+
+		// 优先保留疑似跳转 URL；否则保留同域且包含参数的 URL 作为兜底。
+		isLikelyJump := strings.Contains(lower, "/go/") ||
+			strings.Contains(lower, "/jump") ||
+			strings.Contains(lower, "/redirect") ||
+			strings.Contains(lower, "/api/") ||
+			strings.Contains(lower, "/ajax/") ||
+			strings.Contains(lower, "transfer") ||
+			strings.Contains(lower, "url=") ||
+			strings.Contains(lower, "target=") ||
+			strings.Contains(lower, "agree") ||
+			strings.Contains(lower, "consent") ||
+			strings.Contains(lower, "token=") ||
+			strings.Contains(lower, "id=")
+		if !isLikelyJump {
+			if base == nil || u.Host != base.Host || u.RawQuery == "" {
+				return
+			}
+		}
+
+		if _, ok := seen[s]; ok {
+			return
+		}
+		if len(candidates) >= 30 {
+			return
+		}
+		seen[s] = struct{}{}
+		candidates = append(candidates, s)
+	}
+
+	attrNames := []string{"href", "data-href", "data-url", "data-link", "value", "onclick"}
+	doc.Find("*").Each(func(i int, s *goquery.Selection) {
+		// 先遍历节点的全部属性，避免漏掉非常见 data-* 字段。
+		if len(s.Nodes) > 0 {
+			for _, attr := range s.Nodes[0].Attr {
+				if attr.Val != "" {
+					addCandidate(attr.Val)
+				}
+			}
+		}
+
+		for _, attr := range attrNames {
+			if v, ok := s.Attr(attr); ok && v != "" {
+				addCandidate(v)
+			}
+		}
+	})
+
+	doc.Find("script").Each(func(i int, s *goquery.Selection) {
+		scriptText := strings.TrimSpace(s.Text())
+		if scriptText == "" {
+			return
+		}
+		for _, u := range p.extractAllURLs(scriptText) {
+			addCandidate(u)
+		}
+		for _, m := range escapedHTTPURLRegex.FindAllString(scriptText, -1) {
+			addCandidate(m)
+		}
+		for _, match := range quotedPathRegex.FindAllStringSubmatch(scriptText, -1) {
+			if len(match) > 1 {
+				addCandidate(match[1])
+			}
+		}
+		for _, match := range locationAssignRegex.FindAllStringSubmatch(scriptText, -1) {
+			if len(match) > 1 {
+				addCandidate(match[1])
+			}
+		}
+		for _, match := range jsInvokeRegex.FindAllStringSubmatch(scriptText, -1) {
+			if len(match) > 2 {
+				fn := strings.ToLower(match[1])
+				args := strings.ToLower(match[2])
+				if strings.Contains(fn, "go") || strings.Contains(fn, "jump") || strings.Contains(fn, "link") ||
+					strings.Contains(fn, "get") || strings.Contains(fn, "open") || strings.Contains(fn, "share") ||
+					strings.Contains(args, "id") || strings.Contains(args, "agree") {
+					addCandidate("/api/" + match[1])
+					addCandidate("/" + match[1])
+				}
+			}
+		}
+	})
+
+	return candidates
+}
+
 
 // extractAllURLs 用正则批量提取文本中的所有网盘链接候选。
 func (p *PiozAsyncPlugin) extractAllURLs(text string) []string {
+	if text == "" {
+		return nil
+	}
+
 	var urls []string
+	seen := make(map[string]struct{}, 16)
 	
 
 	patterns := []*regexp.Regexp{
@@ -1094,13 +1855,87 @@ func (p *PiozAsyncPlugin) extractAllURLs(text string) []string {
 		magnetLinkRegex,
 		ed2kLinkRegex,
 	}
-	
-	for _, regex := range patterns {
-		matches := regex.FindAllString(text, -1)
-		urls = append(urls, matches...)
+
+	variants := []string{
+		text,
+		p.normalizeEscapedTextForURLExtraction(text),
+	}
+
+	for _, variant := range variants {
+		if variant == "" {
+			continue
+		}
+
+		for _, regex := range patterns {
+			matches := regex.FindAllString(variant, -1)
+			for _, m := range matches {
+				m = strings.TrimSpace(m)
+				if m == "" {
+					continue
+				}
+				if _, ok := seen[m]; ok {
+					continue
+				}
+				seen[m] = struct{}{}
+				urls = append(urls, m)
+			}
+		}
+
+		// Catch escaped http URLs from inline JSON/JS, then normalize and re-check.
+		for _, escaped := range escapedHTTPURLRegex.FindAllString(variant, -1) {
+			normalized := p.normalizeEscapedTextForURLExtraction(escaped)
+			if normalized == "" || !p.isValidNetworkDriveURL(normalized) {
+				continue
+			}
+			if _, ok := seen[normalized]; ok {
+				continue
+			}
+			seen[normalized] = struct{}{}
+			urls = append(urls, normalized)
+		}
+
+		// Some pages embed quark domain without scheme: pan.quark.cn/s/xxxx
+		for _, m := range quarkLinkNoSchemeRegex.FindAllString(variant, -1) {
+			u := "https://" + strings.TrimSpace(m)
+			if u == "" || !p.isValidNetworkDriveURL(u) {
+				continue
+			}
+			if _, ok := seen[u]; ok {
+				continue
+			}
+			seen[u] = struct{}{}
+			urls = append(urls, u)
+		}
 	}
 	
 	return urls
+}
+
+// normalizeEscapedTextForURLExtraction 归一化脚本中的转义 URL 形式。
+func (p *PiozAsyncPlugin) normalizeEscapedTextForURLExtraction(text string) string {
+	s := strings.TrimSpace(text)
+	if s == "" {
+		return ""
+	}
+
+	// 常见 JS/JSON 转义
+	s = strings.ReplaceAll(s, `\\u002F`, `/`)
+	s = strings.ReplaceAll(s, `\u002F`, `/`)
+	s = strings.ReplaceAll(s, `\\u003A`, `:`)
+	s = strings.ReplaceAll(s, `\u003A`, `:`)
+	s = strings.ReplaceAll(s, `\\u0026`, `&`)
+	s = strings.ReplaceAll(s, `\u0026`, `&`)
+	s = strings.ReplaceAll(s, `\\u003D`, `=`)
+	s = strings.ReplaceAll(s, `\u003D`, `=`)
+	s = strings.ReplaceAll(s, `\\\/`, `/`)
+	s = strings.ReplaceAll(s, `\/`, `/`)
+	s = strings.ReplaceAll(s, `\\`, `\`)
+
+	// 清理包裹符号和常见尾随标点
+	s = strings.Trim(s, `"'()[]{}<>`)
+	s = strings.TrimRight(s, ".,;")
+
+	return s
 }
 
 // readCompressedBody 读取压缩响应体，兼容 gzip 与 deflate。

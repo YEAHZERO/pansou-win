@@ -464,7 +464,10 @@
 
     <script>
         let authToken = null;
+        let authUser = '';
+        let authExpiresAt = 0;
         let isSearching = false;
+        const AUTH_STORAGE_PREFIX = 'pansou_auth_';
 
         // 网盘类型名称映射
         const cloudTypeNames = {
@@ -485,8 +488,83 @@
 
         // 页面加载时检查服务状态
         window.onload = async function() {
+            loadPersistedApiUrl();
             await checkServiceStatus();
+            await restoreAuthState();
         };
+
+        function getApiBaseUrl() {
+            return document.getElementById('apiUrl').value;
+        }
+
+        function getAuthStorageKey() {
+            return `${AUTH_STORAGE_PREFIX}${getApiBaseUrl()}`;
+        }
+
+        function persistApiUrl() {
+            localStorage.setItem('pansou_api_url', getApiBaseUrl());
+        }
+
+        function loadPersistedApiUrl() {
+            const saved = localStorage.getItem('pansou_api_url');
+            if (!saved) return;
+            const select = document.getElementById('apiUrl');
+            const options = Array.from(select.options).map(o => o.value);
+            if (options.includes(saved)) {
+                select.value = saved;
+            }
+        }
+
+        function persistAuthState() {
+            const payload = {
+                token: authToken,
+                username: authUser,
+                expiresAt: authExpiresAt
+            };
+            localStorage.setItem(getAuthStorageKey(), JSON.stringify(payload));
+        }
+
+        function clearAuthState() {
+            authToken = null;
+            authUser = '';
+            authExpiresAt = 0;
+            localStorage.removeItem(getAuthStorageKey());
+            document.getElementById('authStatus').innerHTML = '';
+        }
+
+        async function restoreAuthState() {
+            const raw = localStorage.getItem(getAuthStorageKey());
+            if (!raw) return;
+            try {
+                const saved = JSON.parse(raw);
+                if (!saved || !saved.token) return;
+                // 本地先做过期预检，避免无效请求
+                if (saved.expiresAt && Date.now() >= saved.expiresAt * 1000) {
+                    clearAuthState();
+                    return;
+                }
+
+                const apiUrl = getApiBaseUrl();
+                const verifyResp = await fetch(`${apiUrl}/api/auth/verify`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${saved.token}`
+                    }
+                });
+                if (!verifyResp.ok) {
+                    clearAuthState();
+                    return;
+                }
+
+                authToken = saved.token;
+                authUser = saved.username || '';
+                authExpiresAt = saved.expiresAt || 0;
+                document.getElementById('authStatus').innerHTML = `✅ 已登录: ${authUser || '用户'}`;
+            } catch (_) {
+                clearAuthState();
+            }
+        }
 
         // 检查服务状态
         async function checkServiceStatus() {
@@ -529,7 +607,10 @@
                 if (response.ok) {
                     const data = await response.json();
                     authToken = data.token;
-                    document.getElementById('authStatus').innerHTML = `✅ 已登录: ${data.username}`;
+                    authUser = data.username || username;
+                    authExpiresAt = data.expires_at || 0;
+                    persistAuthState();
+                    document.getElementById('authStatus').innerHTML = `✅ 已登录: ${authUser}`;
                     showMessage('登录成功！', 'success');
                 } else {
                     const error = await response.json();
@@ -591,6 +672,7 @@
                     const data = await response.json();
                     displayResults(data, maxResults);
                 } else if (response.status === 401) {
+                    clearAuthState();
                     showMessage('认证失败，请重新登录', 'error');
                     document.getElementById('authSection').style.display = 'block';
                     resultsDiv.innerHTML = '';
@@ -721,7 +803,12 @@
         });
 
         // API 地址变化时重新检查服务状态
-        document.getElementById('apiUrl').addEventListener('change', checkServiceStatus);
+        document.getElementById('apiUrl').addEventListener('change', async function() {
+            persistApiUrl();
+            clearAuthState();
+            await checkServiceStatus();
+            await restoreAuthState();
+        });
 
         // 密码框回车登录
         document.getElementById('password').addEventListener('keypress', function(e) {

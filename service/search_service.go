@@ -269,7 +269,11 @@ func injectMainCacheToAsyncPlugins(pluginManager *plugin.PluginManager, mainCach
 				// 反序列化失败，使用新结果
 				finalResults = newResults
 				if config.AppConfig != nil && config.AppConfig.AsyncLogEnabled {
-					displayKey := key[:8] + "..."
+					displayKey := key
+					r := []rune(displayKey)
+					if len(r) > 8 {
+						displayKey = string(r[:8]) + "..."
+					}
 					if keyword != "" {
 						fmt.Printf("[异步插件 %s] 缓存反序列化失败，使用新结果: %s(关键词:%s) | 结果数: %d\n", pluginName, displayKey, keyword, len(newResults))
 					} else {
@@ -281,7 +285,11 @@ func injectMainCacheToAsyncPlugins(pluginManager *plugin.PluginManager, mainCach
 			// 无现有缓存，直接使用新结果
 			finalResults = newResults
 			if config.AppConfig != nil && config.AppConfig.AsyncLogEnabled {
-				displayKey := key[:8] + "..."
+				displayKey := key
+				r := []rune(displayKey)
+				if len(r) > 8 {
+					displayKey = string(r[:8]) + "..."
+				}
 				if keyword != "" {
 					fmt.Printf("[异步插件 %s] 初始缓存创建: %s(关键词:%s) | 结果数: %d\n", pluginName, displayKey, keyword, len(newResults))
 				} else {
@@ -1314,7 +1322,11 @@ func (s *SearchService) searchPlugins(keyword string, plugins []string, forceRef
 					fmt.Printf("✅ [%s] 命中缓存 结果数: %d\n", keyword, len(results))
 					return results, nil
 				} else {
-					displayKey := cacheKey[:8] + "..."
+					displayKey := cacheKey
+					r := []rune(displayKey)
+					if len(r) > 8 {
+						displayKey = string(r[:8]) + "..."
+					}
 					fmt.Printf("[主服务] 缓存反序列化失败: %s(关键词:%s) | 错误: %v\n", displayKey, keyword, err)
 				}
 			}
