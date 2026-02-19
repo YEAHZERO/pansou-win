@@ -45,7 +45,7 @@ const (
 	SiteBaseURL = "https://www.pioz.cn"
 
 	// 并发控制：详情页增强最多同时跑多少个请求
-	MaxConcurrency = 8
+	MaxConcurrency = 3
 
 	// HTTP 连接池
 	MaxIdleConns        = 50
@@ -57,12 +57,16 @@ const (
 	CacheTTL = 30 * time.Minute
 
 	// 反爬策略：请求间隔 + 重试
-	RequestDelayMin = 500 * time.Millisecond
+	RequestDelayMin = 1500 * time.Millisecond
 	RequestDelayMax = 1500 * time.Millisecond
 	RetryCount      = 2
 
 	// 详情增强最多处理多少条结果，避免对目标站造成过大压力
 	MaxEnhancedResults = 10
+
+	// Next.js Server Action IDs (深度搜索功能)
+	DeepSearchActionID = "406ba109bf31d3d81924420f284be8a50f5694e5fc"
+	DeepLinkActionID   = "406d8d103081c9476f011dffd6e75b43e160f7bc29"
 )
 
 func init() {
@@ -208,7 +212,7 @@ func NewPiozPlugin() *PiozAsyncPlugin {
 	randomIndex := time.Now().UnixNano() % int64(len(userAgents))
 
 	return &PiozAsyncPlugin{
-		BaseAsyncPlugin:  plugin.NewBaseAsyncPlugin("pioz", 1),
+		BaseAsyncPlugin:  plugin.NewBaseAsyncPluginWithFilter("pioz", 1, true),
 		optimizedClient:  createOptimizedHTTPClient(),
 		userAgents:       userAgents,
 		currentUserAgent: userAgents[randomIndex],
@@ -247,10 +251,11 @@ func (p *PiozAsyncPlugin) SearchWithResult(keyword string, ext map[string]interf
 
 // searchImpl 核心搜索逻辑：
 // 1) 缓存命中直接返回
-// 2) deep-search API（优先）
-// 3) HTML 搜索页（备用）
-// 4) 首页热搜（兜底）
-// 5) 对结果做详情增强（提取最终网盘分享链接）
+// 2) 深度搜索 Server Action（优先，直接返回带链接的结果）
+// 3) deep-search API（备用）
+// 4) HTML 搜索页（备用）
+// 5) 首页热搜（兜底）
+// 6) 对结果做详情增强（提取最终网盘分享链接）
 func (p *PiozAsyncPlugin) searchImpl(client *http.Client, keyword string, ext map[string]interface{}) ([]model.SearchResult, error) {
 
 	start := time.Now()
@@ -277,14 +282,26 @@ func (p *PiozAsyncPlugin) searchImpl(client *http.Client, keyword string, ext ma
 
 	p.applyAntiCrawlerDelay()
 
-	results, err := p.performDeepSearch(client, keyword)
+	results, err := p.performDeepSearchViaServerAction(client, keyword)
+	if err == nil && len(results) > 0 {
+		enhancedResults := p.enhanceDeepSearchResults(client, results)
+		searchCache.Store(cacheKey, cachedResponse{
+			results:   enhancedResults,
+			timestamp: time.Now(),
+		})
+		return enhancedResults, nil
+	}
+	fmt.Printf("[%s] 深度搜索ServerAction失败，尝试API: %v\n", p.Name(), err)
+
+	p.applyAntiCrawlerDelay()
+	results, err = p.performDeepSearch(client, keyword)
 	if err == nil && len(results) > 0 {
 		enhancedResults := p.enhanceWithDetails(client, results)
 		searchCache.Store(cacheKey, cachedResponse{
 			results:   enhancedResults,
 			timestamp: time.Now(),
 		})
-		return plugin.FilterResultsByKeyword(enhancedResults, keyword), nil
+		return enhancedResults, nil
 	}
 
 	p.applyAntiCrawlerDelay()
@@ -295,7 +312,7 @@ func (p *PiozAsyncPlugin) searchImpl(client *http.Client, keyword string, ext ma
 			results:   enhancedResults,
 			timestamp: time.Now(),
 		})
-		return plugin.FilterResultsByKeyword(enhancedResults, keyword), nil
+		return enhancedResults, nil
 	}
 
 	p.applyAntiCrawlerDelay()
@@ -310,7 +327,7 @@ func (p *PiozAsyncPlugin) searchImpl(client *http.Client, keyword string, ext ma
 		timestamp: time.Now(),
 	})
 
-	return plugin.FilterResultsByKeyword(enhancedResults, keyword), nil
+	return enhancedResults, nil
 }
 
 // =========================
@@ -375,6 +392,193 @@ func (p *PiozAsyncPlugin) performDeepSearch(client *http.Client, keyword string)
 
 	fmt.Printf("[%s] \u6df1\u5ea6\u641c\u7d22\u627e\u5230 %d \u4e2a\u7ed3\u679c\n", p.Name(), len(results))
 	return results, nil
+}
+
+// performDeepSearchViaServerAction 通过 Next.js Server Action 执行深度搜索
+// 深度搜索会直接返回带有网盘链接的结果，无需二次跳转
+func (p *PiozAsyncPlugin) performDeepSearchViaServerAction(client *http.Client, keyword string) ([]model.SearchResult, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), DefaultTimeout)
+	defer cancel()
+
+	body := fmt.Sprintf(`["%s"]`, keyword)
+	req, err := http.NewRequestWithContext(ctx, "POST", SiteBaseURL+"/", strings.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Accept", "text/x-component")
+	req.Header.Set("Content-Type", "text/plain;charset=UTF-8")
+	req.Header.Set("next-action", DeepSearchActionID)
+	p.setStealthHeaders(req)
+	p.addSessionCookies(req)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		fmt.Printf("[%s] performDeepSearchViaServerAction: 请求失败 err=%v\n", p.Name(), err)
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	respBody, err := p.readCompressedBody(resp)
+	if err != nil {
+		return nil, err
+	}
+
+	results := p.parseDeepSearchServerActionResponse(respBody)
+	if len(results) == 0 {
+		return nil, fmt.Errorf("深度搜索无结果")
+	}
+
+	fmt.Printf("[%s] 深度搜索(ServerAction)找到 %d 个结果\n", p.Name(), len(results))
+	return results, nil
+}
+
+// parseDeepSearchServerActionResponse 解析深度搜索 Server Action 响应
+// 响应格式: Next.js多行格式
+// 0:{"a":"$@1","f":"","b":"xxx","q":"","i":false}
+// 1:{"code":0,"message":"success","total":60,"results":[...]}
+func (p *PiozAsyncPlugin) parseDeepSearchServerActionResponse(body []byte) []model.SearchResult {
+	var results []model.SearchResult
+
+	text := string(body)
+
+	lines := strings.Split(text, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		if strings.HasPrefix(line, "1:") || strings.Contains(line, `"results"`) {
+			jsonPart := line
+			if strings.HasPrefix(line, "1:") {
+				jsonPart = strings.TrimPrefix(line, "1:")
+			}
+
+			var response struct {
+				Code    int    `json:"code"`
+				Message string `json:"message"`
+				Total   int    `json:"total"`
+				Results []struct {
+					ID        string `json:"id"`
+					Title     string `json:"title"`
+					URL       string `json:"url"`
+					CloudType string `json:"cloud_type"`
+					Password  string `json:"password"`
+					Datetime  string `json:"datetime"`
+				} `json:"results"`
+			}
+
+			if err := json.Unmarshal([]byte(jsonPart), &response); err != nil {
+				continue
+			}
+
+			if response.Code != 0 || len(response.Results) == 0 {
+				continue
+			}
+
+			for _, item := range response.Results {
+				var links []model.Link
+				if item.URL != "" && p.isValidNetworkDriveURL(item.URL) {
+					links = append(links, model.Link{
+						Type:     p.determineLinkType(item.URL),
+						URL:      item.URL,
+						Password: item.Password,
+					})
+				}
+
+				result := model.SearchResult{
+					UniqueID: fmt.Sprintf("%s-deep-%s", p.Name(), item.ID),
+					Title:    item.Title,
+					Content:  fmt.Sprintf("来源: %s | 深度搜索", item.CloudType),
+					Tags:     []string{},
+					Links:    links,
+					Images:   []string{},
+					Channel:  "",
+				}
+
+				if item.Datetime != "" {
+					if parsedTime, err := time.Parse("2006-01-02 15:04", item.Datetime); err == nil {
+						result.Datetime = parsedTime
+					} else if parsedTime, err := time.Parse("2006-01-02", item.Datetime); err == nil {
+						result.Datetime = parsedTime
+					}
+				}
+
+				results = append(results, result)
+			}
+
+			return results
+		}
+	}
+
+	return nil
+}
+
+// fetchDeepLinkViaServerAction 通过深度搜索获取单个资源的网盘链接
+// 当点击深度搜索结果时，发送POST请求获取真实网盘链接
+func (p *PiozAsyncPlugin) fetchDeepLinkViaServerAction(client *http.Client, adapter, resourceURL, title, password string) []model.Link {
+	ctx, cancel := context.WithTimeout(context.Background(), DetailTimeout)
+	defer cancel()
+
+	bodyData := []map[string]string{
+		{
+			"adapter":  adapter,
+			"url":      resourceURL,
+			"title":    title,
+			"password": password,
+		},
+	}
+	bodyBytes, _ := json.Marshal(bodyData)
+
+	req, err := http.NewRequestWithContext(ctx, "POST", SiteBaseURL+"/", bytes.NewReader(bodyBytes))
+	if err != nil {
+		return nil
+	}
+
+	req.Header.Set("Accept", "text/x-component")
+	req.Header.Set("Content-Type", "text/plain;charset=UTF-8")
+	req.Header.Set("next-action", DeepLinkActionID)
+	p.setStealthHeaders(req)
+	p.addSessionCookies(req)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		fmt.Printf("[%s] fetchDeepLinkViaServerAction: 请求失败 err=%v\n", p.Name(), err)
+		return nil
+	}
+	defer resp.Body.Close()
+
+	respBody, err := p.readCompressedBody(resp)
+	if err != nil {
+		return nil
+	}
+
+	respText := string(respBody)
+	if len(respText) > 300 {
+		respText = respText[:300]
+	}
+	fmt.Printf("[%s] fetchDeepLinkViaServerAction: status=%d body=%s\n", p.Name(), resp.StatusCode, respText)
+
+	urlMatch := regexp.MustCompile(`"url"\s*:\s*"([^"]+)"`).FindStringSubmatch(respText)
+	if len(urlMatch) > 1 {
+		realURL := urlMatch[1]
+		if p.isValidNetworkDriveURL(realURL) {
+			pwMatch := regexp.MustCompile(`"password"\s*:\s*"([^"]*)"`).FindStringSubmatch(respText)
+			pw := ""
+			if len(pwMatch) > 1 {
+				pw = pwMatch[1]
+			}
+			fmt.Printf("[%s] fetchDeepLinkViaServerAction成功: url=%s\n", p.Name(), realURL)
+			return []model.Link{{
+				Type:     p.determineLinkType(realURL),
+				URL:      realURL,
+				Password: pw,
+			}}
+		}
+	}
+
+	return nil
 }
 
 // performRegularSearch 解析 HTML 搜索页（API 失败时回退）。
@@ -552,6 +756,15 @@ func (p *PiozAsyncPlugin) convertAPIResultToSearchResult(item struct {
 		viewURL = fmt.Sprintf("%s/detail/%d", SiteBaseURL, item.ID)
 	}
 
+	var datetime time.Time
+	if item.Datetime != "" {
+		if parsedTime, err := time.Parse("2006-01-02", item.Datetime); err == nil {
+			datetime = parsedTime
+		} else if parsedTime, err := time.Parse("2006-01-02 15:04:05", item.Datetime); err == nil {
+			datetime = parsedTime
+		}
+	}
+
 	return model.SearchResult{
 		UniqueID: fmt.Sprintf("%s-%d-%s", p.Name(), item.ID, url.QueryEscape(viewURL)),
 		Title:    item.Title,
@@ -560,7 +773,7 @@ func (p *PiozAsyncPlugin) convertAPIResultToSearchResult(item struct {
 		Links:    []model.Link{},
 		Images:   []string{},
 		Channel:  "",
-		Datetime: time.Time{},
+		Datetime: datetime,
 	}
 }
 
@@ -582,13 +795,44 @@ func (p *PiozAsyncPlugin) parseSearchItemNew(s *goquery.Selection, keyword strin
 		detailURL = SiteBaseURL + href
 	}
 
-	title := strings.TrimSpace(s.Find(".truncate, span").First().Text())
-	if title == "" {
-		title = strings.TrimSpace(s.Text())
+	title := ""
+	titleSelectors := []string{
+		"[class*='title']",
+		".font-medium",
+		".text-gray-100",
+		"h2", "h3", "h4",
+		"a[title]",
+	}
+
+	for _, selector := range titleSelectors {
+		if titleElem := s.Find(selector).First(); titleElem.Length() > 0 {
+			title = strings.TrimSpace(titleElem.Text())
+			if title != "" && !isOnlyDigits(title) {
+				break
+			}
+			if titleAttr, exists := titleElem.Attr("title"); exists && titleAttr != "" {
+				title = strings.TrimSpace(titleAttr)
+				if !isOnlyDigits(title) {
+					break
+				}
+			}
+		}
+	}
+
+	if title == "" || isOnlyDigits(title) {
+		allText := strings.TrimSpace(s.Text())
+		lines := strings.Split(allText, "\n")
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if line != "" && !isOnlyDigits(line) && len(line) > 3 {
+				title = line
+				break
+			}
+		}
 	}
 
 	if title == "" {
-		return result
+		title = fmt.Sprintf("资源 %d", index+1)
 	}
 
 	var contentParts []string
@@ -613,6 +857,18 @@ func (p *PiozAsyncPlugin) parseSearchItemNew(s *goquery.Selection, keyword strin
 	result.Channel = ""
 
 	return result
+}
+
+func isOnlyDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // parseSearchItem 解析搜索页中的单个条目，提取标题、详情页 URL、摘要信息。
@@ -762,6 +1018,78 @@ func (p *PiozAsyncPlugin) parseDetailLink(a *goquery.Selection, index int) model
 // =========================
 // 详情增强（最终链接提取）
 // =========================
+
+// enhanceDeepSearchResults 增强深度搜索结果，尝试获取更多网盘链接
+// 深度搜索结果可能已经包含链接，此函数会尝试补充缺失的链接
+func (p *PiozAsyncPlugin) enhanceDeepSearchResults(client *http.Client, results []model.SearchResult) []model.SearchResult {
+	if len(results) == 0 {
+		return results
+	}
+
+	if len(results) > MaxEnhancedResults {
+		results = results[:MaxEnhancedResults]
+	}
+
+	var enhancedResults []model.SearchResult
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	semaphore := make(chan struct{}, MaxConcurrency)
+
+	for _, result := range results {
+		wg.Add(1)
+
+		go func(r model.SearchResult) {
+			defer wg.Done()
+
+			semaphore <- struct{}{}
+			defer func() { <-semaphore }()
+
+			if len(r.Links) > 0 {
+				mu.Lock()
+				enhancedResults = append(enhancedResults, r)
+				mu.Unlock()
+				return
+			}
+
+			p.applyAntiCrawlerDelay()
+
+			if cached, ok := detailCache.Load(r.UniqueID); ok {
+				if cachedResult, ok := cached.(model.SearchResult); ok {
+					mu.Lock()
+					enhancedResults = append(enhancedResults, cachedResult)
+					mu.Unlock()
+					return
+				}
+			}
+
+			links := p.fetchResourceInfo(client, r)
+			r.Links = links
+
+			if len(links) > 0 {
+				fmt.Printf("[%s] 深度搜索增强成功: %s -> %d个链接\n",
+					p.Name(), r.Title, len(links))
+			}
+
+			detailCache.Store(r.UniqueID, r)
+
+			mu.Lock()
+			enhancedResults = append(enhancedResults, r)
+			mu.Unlock()
+		}(result)
+	}
+
+	wg.Wait()
+
+	withLinks := 0
+	for _, r := range enhancedResults {
+		if len(r.Links) > 0 {
+			withLinks++
+		}
+	}
+	fmt.Printf("[%s] 深度搜索增强完成: 输入=%d, 输出=%d, 含链接=%d\n", p.Name(), len(results), len(enhancedResults), withLinks)
+	return enhancedResults
+}
 
 // enhanceWithDetails 并发增强搜索结果，从详情页/transfer 接口提取真实网盘链接。
 func (p *PiozAsyncPlugin) enhanceWithDetails(client *http.Client, results []model.SearchResult) []model.SearchResult {
@@ -1129,6 +1457,165 @@ func (p *PiozAsyncPlugin) flattenStringValues(v interface{}) []string {
 	return out
 }
 
+// fetchRealLinkViaServerAction 通过 Next.js Server Action POST 请求获取真正的网盘链接
+func (p *PiozAsyncPlugin) fetchRealLinkViaServerAction(client *http.Client, detailURL, resourceID string) []model.Link {
+	// 从详情页 URL 提取资源 ID
+	if resourceID == "" {
+		matches := regexp.MustCompile(`/detail/(\d+)`).FindStringSubmatch(detailURL)
+		if len(matches) > 1 {
+			resourceID = matches[1]
+		}
+	}
+	if resourceID == "" {
+		return nil
+	}
+
+	// 先获取详情页 HTML 以提取 action ID
+	ctx, cancel := context.WithTimeout(context.Background(), DetailTimeout)
+	req, err := http.NewRequestWithContext(ctx, "GET", detailURL, nil)
+	if err != nil {
+		cancel()
+		return nil
+	}
+	p.setStealthHeaders(req)
+	p.addSessionCookies(req)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		cancel()
+		return nil
+	}
+	body, err := p.readCompressedBody(resp)
+	resp.Body.Close()
+	cancel()
+	if err != nil {
+		return nil
+	}
+
+	// 从 JS 文件中提取 action ID
+	htmlBody := string(body)
+	actionID := p.extractServerActionIDFromJSFiles(client, htmlBody, detailURL)
+	if actionID == "" {
+		fmt.Printf("[%s] fetchRealLinkViaServerAction: 未找到 actionID url=%s\n", p.Name(), detailURL)
+		return nil
+	}
+
+	// 发送 POST 请求获取真正的链接
+	ctx2, cancel2 := context.WithTimeout(context.Background(), DetailTimeout)
+	defer cancel2()
+
+	postReq, err := http.NewRequestWithContext(ctx2, "POST", detailURL, strings.NewReader(fmt.Sprintf(`[%s,"$undefined"]`, resourceID)))
+	if err != nil {
+		return nil
+	}
+	postReq.Header.Set("Accept", "text/x-component")
+	postReq.Header.Set("Content-Type", "text/plain;charset=UTF-8")
+	postReq.Header.Set("next-action", actionID)
+	p.setStealthHeaders(postReq)
+	p.addSessionCookies(postReq)
+
+	postResp, err := client.Do(postReq)
+	if err != nil {
+		fmt.Printf("[%s] fetchRealLinkViaServerAction: POST请求失败 err=%v\n", p.Name(), err)
+		return nil
+	}
+	defer postResp.Body.Close()
+
+	postBody, err := p.readCompressedBody(postResp)
+	if err != nil {
+		return nil
+	}
+
+	// 解析响应，格式如: 1:{"success":true,"data":{"url":"https://pan.quark.cn/s/xxx"}}
+	postText := string(postBody)
+	bodyPreview := postText
+	if len(bodyPreview) > 200 {
+		bodyPreview = bodyPreview[:200]
+	}
+	fmt.Printf("[%s] fetchRealLinkViaServerAction: POST响应 status=%d body=%s\n", p.Name(), postResp.StatusCode, bodyPreview)
+	urlMatch := regexp.MustCompile(`"url"\s*:\s*"([^"]+)"`).FindStringSubmatch(postText)
+	if len(urlMatch) > 1 {
+		realURL := urlMatch[1]
+		if p.isValidNetworkDriveURL(realURL) {
+			fmt.Printf("[%s] fetchRealLinkViaServerAction成功: resourceID=%s url=%s\n", p.Name(), resourceID, realURL)
+			return []model.Link{p.createLinkFromURL(realURL, "")}
+		}
+	}
+
+	return nil
+}
+
+// extractServerActionID 从 HTML 中提取 Next.js Server Action ID
+func (p *PiozAsyncPlugin) extractServerActionID(html string) string {
+	// 从内联脚本或外部 JS 中提取 action ID
+	// 匹配 40+ 字符的十六进制字符串
+	matches := regexp.MustCompile(`["']([a-f0-9]{40,})["']`).FindAllStringSubmatch(html, -1)
+	for _, match := range matches {
+		if len(match) > 1 {
+			return match[1]
+		}
+	}
+	return ""
+}
+
+// extractServerActionIDFromJSFiles 从外部 JS 文件中提取 Next.js Server Action ID
+func (p *PiozAsyncPlugin) extractServerActionIDFromJSFiles(client *http.Client, html, baseURL string) string {
+	// 先尝试从 HTML 中提取
+	if actionID := p.extractServerActionID(html); actionID != "" {
+		return actionID
+	}
+
+	// 从 HTML 中提取所有 JS 文件 URL
+	jsURLs := regexp.MustCompile(`src=["']([^"']+\.js[^"']*)["']`).FindAllStringSubmatch(html, -1)
+	for _, match := range jsURLs {
+		if len(match) > 1 {
+			jsURL := match[1]
+			// 处理相对 URL
+			if !strings.HasPrefix(jsURL, "http") {
+				if strings.HasPrefix(jsURL, "//") {
+					jsURL = "https:" + jsURL
+				} else if strings.HasPrefix(jsURL, "/") {
+					parsedURL, err := url.Parse(baseURL)
+					if err == nil {
+						jsURL = parsedURL.Scheme + "://" + parsedURL.Host + jsURL
+					}
+				} else {
+					jsURL = baseURL + "/" + jsURL
+				}
+			}
+
+			// 获取 JS 文件内容
+			ctx, cancel := context.WithTimeout(context.Background(), DetailTimeout)
+			req, err := http.NewRequestWithContext(ctx, "GET", jsURL, nil)
+			if err != nil {
+				cancel()
+				continue
+			}
+			p.setStealthHeaders(req)
+
+			resp, err := client.Do(req)
+			if err != nil {
+				cancel()
+				continue
+			}
+			jsBody, err := p.readCompressedBody(resp)
+			resp.Body.Close()
+			cancel()
+			if err != nil {
+				continue
+			}
+
+			// 从 JS 文件中提取 action ID
+			if actionID := p.extractServerActionID(string(jsBody)); actionID != "" {
+				fmt.Printf("[%s] extractServerActionIDFromJSFiles: 从JS文件提取到actionID=%s\n", p.Name(), actionID)
+				return actionID
+			}
+		}
+	}
+
+	return ""
+}
+
 // parseResourceDetailPage 请求详情页并提取页面中的分享链接（transfer 失败时回退）。
 func (p *PiozAsyncPlugin) parseResourceDetailPage(client *http.Client, result model.SearchResult) []model.Link {
 
@@ -1139,8 +1626,17 @@ func (p *PiozAsyncPlugin) parseResourceDetailPage(client *http.Client, result mo
 		return nil
 	}
 
+	// 首先尝试通过 Server Action POST 请求获取真正的链接
+	if links := p.fetchRealLinkViaServerAction(client, detailURL, ""); len(links) > 0 {
+		return links
+	}
+
 	// Try redirect chain first (some pages jump to share links via 302).
 	if redirected := p.resolveRedirectShareLinksWithReferer(client, detailURL, SiteBaseURL); len(redirected) > 0 {
+		fmt.Printf("[%s] resolveRedirectShareLinksWithReferer命中: detailURL=%s links=%d\n", p.Name(), detailURL, len(redirected))
+		for i, l := range redirected {
+			fmt.Printf("[%s]   redirected[%d]=%s\n", p.Name(), i, l.URL)
+		}
 		return redirected
 	}
 
@@ -1184,6 +1680,10 @@ func (p *PiozAsyncPlugin) parseResourceDetailPage(client *http.Client, result mo
 	}
 
 	links := p.extractLinksFromDocument(doc)
+	fmt.Printf("[%s] extractLinksFromDocument: url=%s links=%d\n", p.Name(), detailURL, len(links))
+	for i, l := range links {
+		fmt.Printf("[%s]   link[%d]=%s\n", p.Name(), i, l.URL)
+	}
 	if len(links) == 0 {
 		// Fallback: emulate consent click/submit flow when page requires "了解并同意获取".
 		if consentLinks := p.tryConsentFlowNew(client, doc, detailURL); len(consentLinks) > 0 {
@@ -1688,9 +2188,19 @@ func (p *PiozAsyncPlugin) resolveRedirectShareLinksWithReferer(client *http.Clie
 
 		pageText := string(body)
 		urls := p.extractAllURLs(pageText)
-		for _, u := range urls {
-			// 只保留 https://pan.quark.cn/s/ 格式的链接
+		fmt.Printf("[%s] resolveRedirect: current=%s extractedURLs=%d\n", p.Name(), current, len(urls))
+		for i, u := range urls {
 			if strings.HasPrefix(u, "https://pan.quark.cn/s/") {
+				fmt.Printf("[%s]   quarkURL[%d]=%s\n", p.Name(), i, u)
+			}
+		}
+		// 过滤广告链接（活动福利社链接）
+		adURLs := map[string]bool{
+			"https://pan.quark.cn/s/14780f24015d": true,
+		}
+		for _, u := range urls {
+			// 只保留 https://pan.quark.cn/s/ 格式的链接，且不是广告链接
+			if strings.HasPrefix(u, "https://pan.quark.cn/s/") && !adURLs[u] {
 				return []model.Link{p.createLinkFromURL(u, p.extractPasswordFromText(pageText))}
 			}
 		}
@@ -1755,9 +2265,14 @@ func (p *PiozAsyncPlugin) extractLinksFromDocument(doc *goquery.Document) []mode
 		}
 	})
 
+	// 过滤广告链接（活动福利社链接）
+	adURLs := map[string]bool{
+		"https://pan.quark.cn/s/14780f24015d": true,
+	}
+
 	for _, urlStr := range urls {
-		// 只保留 https://pan.quark.cn/s/ 格式的链接
-		if !strings.HasPrefix(urlStr, "https://pan.quark.cn/s/") {
+		// 只保留 https://pan.quark.cn/s/ 格式的链接，且不是广告链接
+		if !strings.HasPrefix(urlStr, "https://pan.quark.cn/s/") || adURLs[urlStr] {
 			continue
 		}
 

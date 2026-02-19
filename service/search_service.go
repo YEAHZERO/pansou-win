@@ -998,7 +998,7 @@ func mergeResultsByType(results []model.SearchResult, keyword string, cloudTypes
 	// 创建合并结果的映射
 	mergedLinks := make(model.MergedLinks, 12) // 预分配容量，假设有12种不同的网盘类型
 
-	// 用于去重的映射，键为URL
+	// 用于去重的映射，键为 UniqueID+URL 组合
 	uniqueLinks := make(map[string]model.MergedLink)
 
 	// 遍历所有搜索结果
@@ -1064,6 +1064,10 @@ func mergeResultsByType(results []model.SearchResult, keyword string, cloudTypes
 			// 优先使用链接的WorkTitle字段，如果为空则回退到传统方式
 			title := result.Title // 默认使用消息标题
 
+			if config.AppConfig != nil && config.AppConfig.AsyncLogEnabled {
+				fmt.Printf("[调试标题] result.Title=%s, link.WorkTitle=%s, link.URL=%s\n", result.Title, link.WorkTitle, link.URL)
+			}
+
 			if link.WorkTitle != "" {
 				// 如果链接有WorkTitle字段，优先使用
 				title = link.WorkTitle
@@ -1092,6 +1096,9 @@ func mergeResultsByType(results []model.SearchResult, keyword string, cloudTypes
 					// 通过插件注册表动态获取过滤设置
 					if pluginInstance, exists := plugin.GetPluginByName(pluginName); exists {
 						skipKeywordFilter = pluginInstance.SkipServiceFilter()
+						fmt.Printf("[调试] 插件 %s SkipServiceFilter=%v uniqueID=%s title=%s\n", pluginName, skipKeywordFilter, result.UniqueID, title)
+					} else {
+						fmt.Printf("[调试] 插件 %s 未在注册表中找到 uniqueID=%s\n", pluginName, result.UniqueID)
 					}
 				}
 			}
@@ -1141,15 +1148,18 @@ func mergeResultsByType(results []model.SearchResult, keyword string, cloudTypes
 				Images:   result.Images, // 添加TG消息中的图片链接
 			}
 
-			// 检查是否已存在相同URL的链接
-			if existingLink, exists := uniqueLinks[link.URL]; exists {
+			// 使用 UniqueID+URL 作为唯一键，避免相同URL的不同资源被去重
+			uniqueKey := result.UniqueID + "|" + link.URL
+
+			// 检查是否已存在相同键的链接
+			if existingLink, exists := uniqueLinks[uniqueKey]; exists {
 				// 如果已存在，只有当当前链接的时间更新时才替换
 				if mergedLink.Datetime.After(existingLink.Datetime) {
-					uniqueLinks[link.URL] = mergedLink
+					uniqueLinks[uniqueKey] = mergedLink
 				}
 			} else {
 				// 如果不存在，直接添加
-				uniqueLinks[link.URL] = mergedLink
+				uniqueLinks[uniqueKey] = mergedLink
 			}
 		}
 	}
@@ -1158,23 +1168,16 @@ func mergeResultsByType(results []model.SearchResult, keyword string, cloudTypes
 	// 创建一个有序的链接列表，按原始results中的顺序
 	orderedLinks := make([]model.MergedLink, 0, len(uniqueLinks))
 	linkTypeMap := make(map[string]string) // URL -> Type的映射
+	addedKeys := make(map[string]bool)     // 用于跟踪已添加的键
 
 	// 按原始results的顺序收集唯一链接
 	for _, result := range results {
 		for _, link := range result.Links {
-			if mergedLink, exists := uniqueLinks[link.URL]; exists {
-				// 检查是否已经添加过这个链接
-				found := false
-				for _, existing := range orderedLinks {
-					if existing.URL == link.URL {
-						found = true
-						break
-					}
-				}
-				if !found {
-					orderedLinks = append(orderedLinks, mergedLink)
-					linkTypeMap[link.URL] = link.Type
-				}
+			uniqueKey := result.UniqueID + "|" + link.URL
+			if mergedLink, exists := uniqueLinks[uniqueKey]; exists && !addedKeys[uniqueKey] {
+				orderedLinks = append(orderedLinks, mergedLink)
+				linkTypeMap[link.URL] = link.Type
+				addedKeys[uniqueKey] = true
 			}
 		}
 	}
