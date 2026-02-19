@@ -297,6 +297,11 @@ func (p *PiozAsyncPlugin) searchImpl(client *http.Client, keyword string, ext ma
 	results, err = p.performDeepSearch(client, keyword)
 	if err == nil && len(results) > 0 {
 		enhancedResults := p.enhanceWithDetails(client, results)
+		// 确保至少返回原始结果数量，即使没有获取到链接
+		if len(enhancedResults) == 0 {
+			fmt.Printf("[%s] searchImpl: enhanceWithDetails返回空结果，使用原始结果\n", p.Name())
+			enhancedResults = results
+		}
 		searchCache.Store(cacheKey, cachedResponse{
 			results:   enhancedResults,
 			timestamp: time.Now(),
@@ -308,6 +313,11 @@ func (p *PiozAsyncPlugin) searchImpl(client *http.Client, keyword string, ext ma
 	results, err = p.performRegularSearch(client, keyword)
 	if err == nil && len(results) > 0 {
 		enhancedResults := p.enhanceWithDetails(client, results)
+		// 确保至少返回原始结果数量，即使没有获取到链接
+		if len(enhancedResults) == 0 {
+			fmt.Printf("[%s] searchImpl: enhanceWithDetails返回空结果，使用原始结果\n", p.Name())
+			enhancedResults = results
+		}
 		searchCache.Store(cacheKey, cachedResponse{
 			results:   enhancedResults,
 			timestamp: time.Now(),
@@ -317,17 +327,23 @@ func (p *PiozAsyncPlugin) searchImpl(client *http.Client, keyword string, ext ma
 
 	p.applyAntiCrawlerDelay()
 	results, err = p.extractFromHotSearch(client, keyword)
-	if err != nil {
-		return nil, fmt.Errorf("[%s] \u6240\u6709\u641c\u7d22\u7b56\u7565\u90fd\u5931\u8d25: %w", p.Name(), err)
+	if err == nil {
+		enhancedResults := p.enhanceWithDetails(client, results)
+		// 确保至少返回原始结果数量，即使没有获取到链接
+		if len(enhancedResults) == 0 {
+			fmt.Printf("[%s] searchImpl: enhanceWithDetails返回空结果，使用原始结果\n", p.Name())
+			enhancedResults = results
+		}
+		searchCache.Store(cacheKey, cachedResponse{
+			results:   enhancedResults,
+			timestamp: time.Now(),
+		})
+		return enhancedResults, nil
 	}
 
-	enhancedResults := p.enhanceWithDetails(client, results)
-	searchCache.Store(cacheKey, cachedResponse{
-		results:   enhancedResults,
-		timestamp: time.Now(),
-	})
-
-	return enhancedResults, nil
+	// 所有搜索策略都失败，返回空结果列表而不是错误
+	fmt.Printf("[%s] 所有搜索策略都失败，返回空结果: %v\n", p.Name(), err)
+	return []model.SearchResult{}, nil
 }
 
 // =========================
@@ -1152,6 +1168,13 @@ func (p *PiozAsyncPlugin) enhanceWithDetails(client *http.Client, results []mode
 		}
 	}
 	fmt.Printf("[%s] 详情增强完成: 输入=%d, 输出=%d, 含链接=%d\n", p.Name(), len(results), len(enhancedResults), withLinks)
+
+	// 确保至少返回原始结果数量，即使没有获取到链接
+	if len(enhancedResults) == 0 {
+		fmt.Printf("[%s] enhanceWithDetails: 没有获取到链接，但返回原始结果\n", p.Name())
+		return results
+	}
+
 	return enhancedResults
 }
 
@@ -1187,13 +1210,35 @@ func (p *PiozAsyncPlugin) extractResourceID(uniqueID string) string {
 	}
 
 	if strings.Contains(uniqueID, "-detail-") {
+		// 从包含 "-detail-" 的 UniqueID 中提取资源 ID
+		detailURL := p.parseDetailURLFromUniqueID(uniqueID)
+		if detailURL != "" {
+			if matches := detailIDRegex.FindStringSubmatch(detailURL); len(matches) > 1 {
+				return matches[1]
+			}
+		}
+		// 尝试从 UniqueID 的其他部分提取资源 ID
+		parts := strings.SplitN(uniqueID, "-detail-", 2)
+		if len(parts) >= 1 {
+			if matches := detailIDRegex.FindStringSubmatch(parts[1]); len(matches) > 1 {
+				return matches[1]
+			}
+		}
 		return ""
 	}
 
 	if strings.Contains(uniqueID, "-deep-") {
 		parts := strings.SplitN(uniqueID, "-deep-", 2)
 		if len(parts) == 2 {
-			return strings.TrimSpace(parts[1])
+			resourceID := strings.TrimSpace(parts[1])
+			// 去除深度搜索结果中的下划线后缀（如 _0, _1 等）
+			if strings.Contains(resourceID, "_") {
+				idParts := strings.SplitN(resourceID, "_", 2)
+				if len(idParts) >= 1 {
+					return idParts[0]
+				}
+			}
+			return resourceID
 		}
 	}
 
@@ -1363,6 +1408,22 @@ func (p *PiozAsyncPlugin) tryTransferEndpointFallbacks(client *http.Client, reso
 		fmt.Sprintf("%s/getShare?id=%s", APIBaseURL, url.QueryEscape(resourceID)),
 		fmt.Sprintf("%s/link?id=%s", APIBaseURL, url.QueryEscape(resourceID)),
 		fmt.Sprintf("%s/source?id=%s", APIBaseURL, url.QueryEscape(resourceID)),
+		// 添加更多可能的API端点
+		fmt.Sprintf("%s/api/transfer?id=%s", APIBaseURL, url.QueryEscape(resourceID)),
+		fmt.Sprintf("%s/api/share?id=%s", APIBaseURL, url.QueryEscape(resourceID)),
+		fmt.Sprintf("%s/api/getShare?id=%s", APIBaseURL, url.QueryEscape(resourceID)),
+		fmt.Sprintf("%s/api/link?id=%s", APIBaseURL, url.QueryEscape(resourceID)),
+		fmt.Sprintf("%s/api/source?id=%s", APIBaseURL, url.QueryEscape(resourceID)),
+		fmt.Sprintf("%s/api/v1/transfer?id=%s", APIBaseURL, url.QueryEscape(resourceID)),
+		fmt.Sprintf("%s/api/v1/share?id=%s", APIBaseURL, url.QueryEscape(resourceID)),
+		fmt.Sprintf("%s/api/v2/transfer?id=%s", APIBaseURL, url.QueryEscape(resourceID)),
+		fmt.Sprintf("%s/api/v2/share?id=%s", APIBaseURL, url.QueryEscape(resourceID)),
+		fmt.Sprintf("%s/share/transfer?id=%s", APIBaseURL, url.QueryEscape(resourceID)),
+		fmt.Sprintf("%s/share/link?id=%s", APIBaseURL, url.QueryEscape(resourceID)),
+		fmt.Sprintf("%s/resource/share?id=%s", APIBaseURL, url.QueryEscape(resourceID)),
+		fmt.Sprintf("%s/resource/link?id=%s", APIBaseURL, url.QueryEscape(resourceID)),
+		fmt.Sprintf("%s/detail/share?id=%s", APIBaseURL, url.QueryEscape(resourceID)),
+		fmt.Sprintf("%s/detail/link?id=%s", APIBaseURL, url.QueryEscape(resourceID)),
 	}
 
 	probes := make([]endpointProbe, 0, len(apiCandidates)*3)

@@ -499,6 +499,10 @@ func (s *SearchService) Search(keyword string, channels []string, concurrency in
 	// 合并链接按网盘类型分组（使用所有过滤后的结果）
 	mergedLinks := mergeResultsByType(allResults, keyword, cloudTypes)
 
+	// 限制每个结果的链接数量，只保留前3个链接
+	allResults = limitLinks(allResults, 3)
+	filteredForResults = limitLinks(filteredForResults, 3)
+
 	// 构建响应
 	var total int
 	if resultType == "merged_by_type" {
@@ -510,6 +514,61 @@ func (s *SearchService) Search(keyword string, channels []string, concurrency in
 	} else {
 		// 只计算filteredForResults的数量
 		total = len(filteredForResults)
+	}
+
+	// 如果搜索结果为0，尝试使用部分剧名进行搜索
+	if total == 0 {
+		partialKeywords := extractPartialKeywords(keyword)
+		if len(partialKeywords) > 0 {
+			fmt.Printf("[主服务] 搜索结果为0，尝试使用部分剧名搜索: %v\n", partialKeywords)
+
+			for _, partialKeyword := range partialKeywords {
+				// 使用部分关键词重新搜索
+				partialTGResults, _ := s.searchTG(partialKeyword, channels, true)
+				partialPluginResults, _ := s.searchPlugins(partialKeyword, plugins, true, concurrency, ext)
+
+				// 合并部分搜索结果
+				partialAllResults := mergeSearchResults(partialTGResults, partialPluginResults)
+
+				// 如果找到结果，返回部分搜索结果
+				if len(partialAllResults) > 0 {
+					fmt.Printf("[主服务] 部分剧名搜索成功: %s -> %d个结果\n", partialKeyword, len(partialAllResults))
+
+					// 排序和过滤部分搜索结果
+					sortResultsByTimeAndKeywords(partialAllResults)
+
+					partialFilteredForResults := make([]model.SearchResult, 0, len(partialAllResults))
+					for _, result := range partialAllResults {
+						source := getResultSource(result)
+						pluginLevel := getPluginLevelBySource(source)
+
+						if !result.Datetime.IsZero() || getKeywordPriority(result.Title) > 0 || pluginLevel <= 2 {
+							partialFilteredForResults = append(partialFilteredForResults, result)
+						}
+					}
+
+					// 限制链接数量
+					partialFilteredForResults = limitLinks(partialFilteredForResults, 3)
+
+					// 合并链接按网盘类型分组
+					partialMergedLinks := mergeResultsByType(partialAllResults, partialKeyword, cloudTypes)
+
+					partialTotal := len(partialFilteredForResults)
+					if resultType == "merged_by_type" {
+						partialTotal = 0
+						for _, links := range partialMergedLinks {
+							partialTotal += len(links)
+						}
+					}
+
+					return model.SearchResponse{
+						Total:        partialTotal,
+						Results:      partialFilteredForResults,
+						MergedByType: partialMergedLinks,
+					}, nil
+				}
+			}
+		}
 	}
 
 	response := model.SearchResponse{
@@ -1627,4 +1686,68 @@ func calculateTimeScore(datetime time.Time) float64 {
 	default:
 		return 20 // 1年以上
 	}
+}
+
+// extractPartialKeywords 从剧名中提取部分关键词，用于在搜索结果为0时进行重试
+// 优先提取有逗号的前后文字，最好是成句的文字而非简单的几个字
+func extractPartialKeywords(keyword string) []string {
+	var partialKeywords []string
+
+	// 如果包含逗号，提取逗号前后的文字
+	if strings.Contains(keyword, "，") || strings.Contains(keyword, ",") {
+		parts := strings.FieldsFunc(keyword, func(r rune) bool {
+			return r == '，' || r == ','
+		})
+
+		for _, part := range parts {
+			trimmed := strings.TrimSpace(part)
+			if len(trimmed) >= 3 {
+				partialKeywords = append(partialKeywords, trimmed)
+			}
+		}
+	}
+
+	// 如果没有逗号或提取的部分太少，尝试其他方式
+	if len(partialKeywords) == 0 {
+		// 尝试提取冒号、顿号等标点符号前后的文字
+		separators := []string{"：", ":", "、", "·", "|", "｜"}
+		for _, sep := range separators {
+			if strings.Contains(keyword, sep) {
+				parts := strings.Split(keyword, sep)
+				for _, part := range parts {
+					trimmed := strings.TrimSpace(part)
+					if len(trimmed) >= 3 {
+						partialKeywords = append(partialKeywords, trimmed)
+					}
+				}
+				break
+			}
+		}
+	}
+
+	// 如果还是没有提取到部分关键词，尝试提取前半部分和后半部分
+	if len(partialKeywords) == 0 && len(keyword) > 6 {
+		half := len(keyword) / 2
+		firstHalf := strings.TrimSpace(keyword[:half])
+		secondHalf := strings.TrimSpace(keyword[half:])
+
+		if len(firstHalf) >= 3 {
+			partialKeywords = append(partialKeywords, firstHalf)
+		}
+		if len(secondHalf) >= 3 {
+			partialKeywords = append(partialKeywords, secondHalf)
+		}
+	}
+
+	return partialKeywords
+}
+
+// limitLinks 限制每个搜索结果的链接数量，只保留前几个链接
+func limitLinks(results []model.SearchResult, maxLinks int) []model.SearchResult {
+	for i := range results {
+		if len(results[i].Links) > maxLinks {
+			results[i].Links = results[i].Links[:maxLinks]
+		}
+	}
+	return results
 }

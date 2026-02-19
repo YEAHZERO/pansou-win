@@ -44,7 +44,7 @@ type XdpanPlugin struct {
 // NewXdpanPlugin 创建插件实例。
 func NewXdpanPlugin() *XdpanPlugin {
 	return &XdpanPlugin{
-		BaseAsyncPlugin: plugin.NewBaseAsyncPlugin("xdpan", 3),
+		BaseAsyncPlugin: plugin.NewBaseAsyncPlugin("xdpan", 1),
 		cacheTTL:        60 * time.Minute,
 	}
 }

@@ -232,7 +232,7 @@ func NewPanSearchPlugin() *PanSearchAsyncPlugin {
 	maxConcurrent := MaxConcurrent
 
 	p := &PanSearchAsyncPlugin{
-		BaseAsyncPlugin: plugin.NewBaseAsyncPlugin("pansearch", 3),
+		BaseAsyncPlugin: plugin.NewBaseAsyncPlugin("pansearch", 1),
 		timeout:         timeout,
 		maxResults:      MaxResults,
 		maxConcurrent:   maxConcurrent,
@@ -348,7 +348,7 @@ func (p *PanSearchAsyncPlugin) Name() string {
 
 // Priority 返回插件优先级。
 func (p *PanSearchAsyncPlugin) Priority() int {
-	return 3
+	return 1
 }
 
 // getBuildId 获取可用 buildId（带缓存）。
