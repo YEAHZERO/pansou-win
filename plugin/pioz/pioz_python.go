@@ -18,12 +18,12 @@ import (
 
 type PiozPythonPlugin struct {
 	*plugin.BaseAsyncPlugin
-	pythonPath  string
-	scriptPath  string
-	cache       sync.Map
-	cacheTTL    time.Duration
-	timeout     time.Duration
-	maxResults  int
+	pythonPath string
+	scriptPath string
+	cache      sync.Map
+	cacheTTL   time.Duration
+	timeout    time.Duration
+	maxResults int
 }
 
 type pythonSearchResult struct {
@@ -44,7 +44,10 @@ type cacheItem struct {
 func NewPiozPythonPlugin() *PiozPythonPlugin {
 	pythonPath := findPython()
 	scriptPath := findScriptPath()
-	
+
+	fmt.Printf("[pioz] Python路径: %s\n", pythonPath)
+	fmt.Printf("[pioz] 脚本路径: %s\n", scriptPath)
+
 	return &PiozPythonPlugin{
 		BaseAsyncPlugin: plugin.NewBaseAsyncPlugin("pioz", 1),
 		pythonPath:      pythonPath,
@@ -60,7 +63,7 @@ func findPython() string {
 	if runtime.GOOS == "windows" {
 		candidates = []string{"python", "python3", "py"}
 	}
-	
+
 	for _, cmd := range candidates {
 		if path, err := exec.LookPath(cmd); err == nil {
 			return path
@@ -73,24 +76,20 @@ func findScriptPath() string {
 	_, filename, _, _ := runtime.Caller(0)
 	dir := filepath.Dir(filename)
 	scriptPath := filepath.Join(dir, "pioz.py")
-	
+
 	if _, err := os.Stat(scriptPath); err == nil {
 		return scriptPath
 	}
-	
+
 	return "pioz.py"
 }
 
 func (p *PiozPythonPlugin) Search(keyword string, ext map[string]interface{}) ([]model.SearchResult, error) {
-	result, err := p.SearchWithResult(keyword, ext)
-	if err != nil {
-		return nil, err
-	}
-	return result.Results, nil
+	return p.BaseAsyncPlugin.AsyncSearch(keyword, p.searchImpl, p.MainCacheKey, ext)
 }
 
 func (p *PiozPythonPlugin) SearchWithResult(keyword string, ext map[string]interface{}) (model.PluginSearchResult, error) {
-	return p.AsyncSearchWithResult(keyword, p.searchImpl, p.MainCacheKey, ext)
+	return p.BaseAsyncPlugin.AsyncSearchWithResult(keyword, p.searchImpl, p.MainCacheKey, ext)
 }
 
 func (p *PiozPythonPlugin) searchImpl(client *http.Client, keyword string, ext map[string]interface{}) ([]model.SearchResult, error) {
@@ -101,21 +100,21 @@ func (p *PiozPythonPlugin) searchImpl(client *http.Client, keyword string, ext m
 			}
 		}
 	}
-	
+
 	results, err := p.executePythonScript(keyword)
 	if err != nil {
 		return nil, fmt.Errorf("[pioz] Python脚本执行失败: %w", err)
 	}
-	
+
 	if len(results) > p.maxResults {
 		results = results[:p.maxResults]
 	}
-	
+
 	p.cache.Store(keyword, cacheItem{
 		results:   results,
 		timestamp: time.Now(),
 	})
-	
+
 	fmt.Printf("[pioz] Python插件搜索完成: %s -> %d 结果\n", keyword, len(results))
 	return results, nil
 }
@@ -124,12 +123,12 @@ func (p *PiozPythonPlugin) executePythonScript(keyword string) ([]model.SearchRe
 	if p.pythonPath == "" {
 		return nil, fmt.Errorf("未找到Python解释器")
 	}
-	
+
 	ctx, cancel := context.WithTimeout(context.Background(), p.timeout)
 	defer cancel()
-	
+
 	cmd := exec.CommandContext(ctx, p.pythonPath, p.scriptPath, keyword)
-	
+
 	output, err := cmd.Output()
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
@@ -137,12 +136,12 @@ func (p *PiozPythonPlugin) executePythonScript(keyword string) ([]model.SearchRe
 		}
 		return nil, fmt.Errorf("执行失败: %w", err)
 	}
-	
+
 	var pythonResults []pythonSearchResult
 	if err := json.Unmarshal(output, &pythonResults); err != nil {
 		return nil, fmt.Errorf("解析JSON失败: %w, output: %s", err, string(output))
 	}
-	
+
 	results := make([]model.SearchResult, 0, len(pythonResults))
 	for _, pr := range pythonResults {
 		results = append(results, model.SearchResult{
@@ -155,7 +154,7 @@ func (p *PiozPythonPlugin) executePythonScript(keyword string) ([]model.SearchRe
 			Images:   pr.Images,
 		})
 	}
-	
+
 	return results, nil
 }
 

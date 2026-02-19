@@ -42,6 +42,7 @@ stop.bat
 2. **普通HTML搜索**（备用）
    - 接口：`https://www.pioz.cn/search?q=关键词`
    - 兼容性好，支持详情页链接提取
+   - 使用精确选择器 `a[href^='/detail/']` 匹配详情页
 
 3. **热搜榜匹配**（兜底）
    - 接口：`https://www.pioz.cn`（首页）
@@ -49,16 +50,36 @@ stop.bat
 
 ### 二次跳转机制
 
-自动完成详情页访问，提取真实网盘链接：
+自动完成详情页访问和"了解并同意获取"按钮点击，提取真实网盘链接：
 
 ```
-搜索结果页 → 提取详情页链接 → 异步并发访问（8个并发）→ 提取真实链接 → 返回给用户
+搜索结果页 → 提取详情页链接 → 异步并发访问（8个并发）→ 检测同意页 → 点击"了解并同意获取"按钮 → 提取真实链接 → 返回给用户
 ```
 
 **性能对比**：
 - 串行处理：10个结果 × 5秒 = 50秒
 - 并发处理：10个结果 ÷ 8并发 × 5秒 = 约10-15秒
 - 性能提升：3-5倍
+
+**二次跳转处理流程**：
+1. 检测页面是否包含"了解并同意获取"文本
+2. 先尝试直接从页面提取网盘链接
+3. 如果没有找到，尝试 form 提交
+4. 最后尝试按钮点击模拟（JavaScript 执行）
+
+### 网盘链接格式过滤
+
+**只保留夸克网盘的 `https://pan.quark.cn/s/` 格式链接**，排除其他格式：
+
+- ✅ **保留**：`https://pan.quark.cn/s/91fd27aed7f9`
+- ❌ **排除**：`https://pan.quark.cn/g/d7d04e8da2`
+- ❌ **排除**：其他格式的网盘链接
+
+**过滤位置**：
+- 链接提取函数（`extractLinksFromDocument`）
+- 重定向链处理（`resolveRedirectShareLinksWithReferer`）
+- 二次跳转处理（`tryConsentFlowNew`）
+- 按钮点击模拟（`clickConsentButtons`）
 
 ### 反爬策略
 
@@ -450,13 +471,19 @@ go build '-ldflags' '-s -w' -trimpath -o pansou.exe
 #- -ldflags "-s -w" - 去除调试信息和符号表
 #- -trimpath - 去除文件路径信息（增强安全性）
 
-**版本**: v8.0  
-**更新**: 2026-02-12  
+**版本**: v8.1  
+**更新**: 2026-02-19  
 **状态**: ✅ 生产可用  
 
 **维护者**: abcxyzNone  
 **AI工具**: Kiro (Claude Sonnet 4.5)  
 **致谢**: PanSou Team & fish2018
 
+**最近更新**：
+- ✅ Pioz 插件重构：适配新的网站结构，实现二次跳转，添加链接格式过滤
+- ✅ 新增 `parseSearchItemNew` 函数：解析新版本搜索结果
+- ✅ 新增 `tryConsentFlowNew` 函数：处理新版本二次跳转
+- ✅ 新增 `clickConsentButtons` 函数：模拟点击同意按钮
+- ✅ 更新链接过滤逻辑：只保留 `https://pan.quark.cn/s/` 格式
 ---
 
