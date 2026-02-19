@@ -66,7 +66,7 @@ const (
 )
 
 func init() {
-	plugin.RegisterGlobalPlugin(NewPiozPythonPlugin())
+	plugin.RegisterGlobalPlugin(NewPiozPlugin())
 }
 
 var (
