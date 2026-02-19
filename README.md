@@ -432,6 +432,236 @@ BaseAsyncPlugin: plugin.NewBaseAsyncPlugin("xdpan", 1),
 
 详细说明见：[搜索优化与问题解决方案](docs/搜索优化与问题解决方案.md)
 
+### 问题9：Playwright MCP 浏览器无法启动
+
+**症状**：
+```
+Failed to initialize browser: browserType.launch: Executable doesn't exist at C:\Users\liveu\AppData\Local\ms-playwright\chromium-1200\chrome-win64\chrome.exe
+```
+
+**原因**：Playwright MCP 服务器需要浏览器驱动才能运行，但系统中没有安装 Playwright 浏览器。
+
+**解决方案**：
+
+#### 方案一：使用系统 Edge 浏览器（推荐）
+
+修改 MCP 配置文件，强制使用系统 Edge 浏览器：
+
+**配置文件位置**：
+```
+c:\Users\liveu\AppData\Roaming\Trae CN\User\mcp.json
+```
+
+**配置方法一：直接配置（简单）**
+
+```json
+{
+  "mcpServers": {
+    "Playwright": {
+      "command": "node",
+      "args": [
+        "C:\\Programs\\AITech\\CodexCLI\\npm-global\\node_modules\\@executeautomation\\playwright-mcp-server\\dist\\index.js",
+        "--browser", "msedge",
+        "--headless", "false",
+        "--executable-path", "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"
+      ],
+      "env": {
+        "PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD": "1",
+        "PLAYWRIGHT_BROWSERS_PATH": "0"
+      }
+    }
+  }
+}
+```
+
+**配置方法二：使用自定义 mcp-runner.js（灵活）**
+
+创建 `C:\Programs\Coding\Playwright\mcp-runner.js`：
+
+```javascript
+const { spawn } = require('child_process');
+const path = require('path');
+
+// 设置环境变量，强制使用系统 Edge
+process.env.PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = '1';
+process.env.PLAYWRIGHT_BROWSERS_PATH = '0';
+
+// 使用项目中的 Playwright
+const mcpPath = path.join(__dirname, 'node_modules', '@executeautomation', 'playwright-mcp-server', 'dist', 'index.js');
+
+const mcp = spawn('node', [
+  mcpPath, 
+  '--browser', 'msedge', 
+  '--headless', 'false',
+  '--executable-path', 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe'
+], {
+  stdio: 'inherit',
+  env: process.env
+});
+
+mcp.on('close', (code) => {
+  console.log(`MCP server exited with code ${code}`);
+});
+```
+
+修改 `mcp.json`：
+
+```json
+{
+  "mcpServers": {
+    "Playwright": {
+      "command": "node",
+      "args": [
+        "C:\\Programs\\Coding\\Playwright\\mcp-runner.js"
+      ]
+    }
+  }
+}
+```
+
+**两种方案对比**：
+
+| 特性 | 方案一（直接配置） | 方案二（mcp-runner.js） |
+|------|-------------------|----------------------|
+| 配置复杂度 | ⭐ 简单 | ⭐⭐ 中等 |
+| 维护性 | ⚠️ 配置分散 | ✅ 集中管理 |
+| 调试能力 | ❌ 有限 | ✅ 可以添加日志 |
+| 灵活性 | ❌ 硬编码路径 | ✅ 使用相对路径 |
+| 错误处理 | ❌ 有限 | ✅ 可以自定义 |
+
+**重要提示**：
+- 修改配置后需要重启 TRAE IDE 才能生效
+- 确保 Edge 浏览器已安装在指定路径
+- 如果配置仍然不生效，检查 MCP 服务器状态
+
+#### 方案二：安装 Playwright 浏览器
+
+```bash
+npx playwright install
+```
+
+**注意**：此方法会下载 Playwright 自带的浏览器，占用磁盘空间较大。
+
+### 问题10：Playwright 使用系统 Edge 的正确方法
+
+**错误方法**：
+```javascript
+// ❌ 错误：Playwright 无此 API
+await playwright.edge.launch();
+```
+
+**正确方法**：
+
+```javascript
+// ✅ 正确：使用 chromium.launch() + channel 参数
+const { chromium } = require('playwright');
+
+(async () => {
+  const browser = await chromium.launch({
+    channel: 'msedge',
+    headless: false
+  });
+  const page = await browser.newPage();
+  // 使用页面...
+  await browser.close();
+})();
+```
+
+**Python 版本**：
+```python
+from playwright.sync_api import sync_playwright
+
+with sync_playwright() as p:
+    browser = p.chromium.launch(channel="msedge", headless=False)
+    page = browser.new_page()
+    # 使用页面...
+    browser.close()
+```
+
+**原理说明**：
+- Microsoft Edge 基于 Chromium 内核开发
+- Playwright 通过 `chromium.launch()` 方法启动
+- 使用 `channel: 'msedge'` 参数指定使用 Edge 浏览器
+- 也可以使用 `executable_path` 参数直接指定 Edge 可执行文件路径
+
+### 问题11：MCP 配置文件修改后不生效
+
+**症状**：修改 `mcp.json` 配置后，Playwright 仍然使用旧配置
+
+**原因**：MCP 服务器没有重新加载配置
+
+**解决方案**：
+
+1. **重启 TRAE IDE**（推荐）
+   - 完全关闭 TRAE IDE
+   - 重新打开 IDE
+   - MCP 服务器会自动重新加载配置
+
+2. **检查 MCP 服务器状态**
+   - 在 TRAE IDE 中查看 MCP 服务器状态
+   - 查看是否有错误信息
+
+3. **验证配置文件**
+   - 确认配置文件路径正确
+   - 确认 JSON 格式正确（无语法错误）
+
+4. **查看日志**
+   - 检查 MCP 服务器启动日志
+   - 确认浏览器路径是否正确
+
+**配置文件位置**：
+```
+c:\Users\liveu\AppData\Roaming\Trae CN\User\mcp.json
+```
+
+**常见配置错误**：
+- 路径中的反斜杠未转义（`C:\` 应为 `C:\\`）
+- JSON 格式错误（缺少逗号、引号等）
+- 环境变量设置错误（`PLAYWRIGHT_BROWSERS_PATH` 应为 `"0"` 而不是 `0`）
+
+### 问题12：插件搜索有结果但返回0
+
+**现象**：
+```
+[pioz] 普通搜索找到 20 个结果
+[pioz] 详情增强完成: 输入=10, 输出=10, 含链接=10
+✅ [搜索完成] 总结果: 0
+```
+
+**原因分析**：
+
+1. **时间字段未设置**：`Datetime` 字段为空值，导致结果被过滤
+2. **关键词不匹配**：标题与搜索关键词不匹配，被关键词过滤器过滤
+3. **UniqueID 格式错误**：无法识别插件来源，导致优先级判断错误
+
+**解决方案**：
+
+1. **正确设置时间字段**：
+```go
+var datetime time.Time
+if item.Datetime != "" {
+    if parsedTime, err := time.Parse("2006-01-02", item.Datetime); err == nil {
+        datetime = parsedTime
+    }
+}
+
+return model.SearchResult{
+    Datetime: datetime,  // 使用解析后的时间
+}
+```
+
+2. **确保 UniqueID 格式正确**：
+```go
+UniqueID: fmt.Sprintf("%s-%d-%s", p.Name(), item.ID, url.QueryEscape(viewURL))
+```
+
+3. **理解过滤机制**：
+   - 第一层：过滤无链接的结果
+   - 第二层：过滤无时间、无关键词匹配、低优先级的结果
+   - `mergedLinks` 不受第二层过滤影响
+
+**详细文档**：参见 [插件开发指南](docs/插件开发指南.md) 中的"实际案例分析：插件结果过滤问题排查"
+
 ## 项目结构
 
 ```
@@ -605,5 +835,8 @@ go build '-ldflags' '-s -w' -trimpath -o pansou.exe
 - ✅ 新增 `tryConsentFlowNew` 函数：处理新版本二次跳转
 - ✅ 新增 `clickConsentButtons` 函数：模拟点击同意按钮
 - ✅ 更新链接过滤逻辑：只保留 `https://pan.quark.cn/s/` 格式
+- ✅ 移除 Python 依赖：删除旧的 Python 版本，完全使用 Go 实现
+- ✅ 修复时间字段：正确解析并设置 `Datetime` 字段，避免结果被过滤
+- ✅ 问题排查文档：添加插件结果过滤问题排查案例到插件开发指南
 ---
 
