@@ -1190,6 +1190,13 @@ func (p *PiozAsyncPlugin) extractResourceID(uniqueID string) string {
 		return ""
 	}
 
+	if strings.Contains(uniqueID, "-deep-") {
+		parts := strings.SplitN(uniqueID, "-deep-", 2)
+		if len(parts) == 2 {
+			return strings.TrimSpace(parts[1])
+		}
+	}
+
 	parts := strings.SplitN(uniqueID, "-", 3)
 	if len(parts) >= 2 {
 		return strings.TrimSpace(parts[1])
@@ -1210,6 +1217,20 @@ func (p *PiozAsyncPlugin) parseDetailURLFromUniqueID(uniqueID string) string {
 				return detailURL
 			}
 			return parts[1]
+		}
+	}
+
+	if strings.Contains(uniqueID, "-deep-") {
+		parts := strings.SplitN(uniqueID, "-deep-", 2)
+		if len(parts) == 2 {
+			resourceID := parts[1]
+			if strings.Contains(resourceID, "_") {
+				idParts := strings.SplitN(resourceID, "_", 2)
+				if len(idParts) >= 1 {
+					return fmt.Sprintf("%s/detail/%s", SiteBaseURL, idParts[0])
+				}
+			}
+			return fmt.Sprintf("%s/detail/%s", SiteBaseURL, resourceID)
 		}
 	}
 
