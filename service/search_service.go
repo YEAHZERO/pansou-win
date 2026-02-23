@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"pansou/config"
 	"pansou/model"
@@ -1361,8 +1362,12 @@ func (s *SearchService) searchPlugins(keyword string, plugins []string, forceRef
 		ext["refresh"] = true
 	}
 
-	// 生成缓存键
-	cacheKey := cache.GeneratePluginCacheKey(keyword, plugins)
+	// 生成缓存键：当请求未指定plugins参数时，使用当前服务启用插件列表，避免与其他运行模式共享缓存
+	cacheKeyPlugins := plugins
+	if len(cacheKeyPlugins) == 0 {
+		cacheKeyPlugins = config.AppConfig.EnabledPlugins
+	}
+	cacheKey := cache.GeneratePluginCacheKey(keyword, cacheKeyPlugins)
 
 	// 如果未启用强制刷新，尝试从缓存获取结果
 	if !forceRefresh && cacheInitialized && config.AppConfig.CacheEnabled {
@@ -1701,7 +1706,7 @@ func extractPartialKeywords(keyword string) []string {
 
 		for _, part := range parts {
 			trimmed := strings.TrimSpace(part)
-			if len(trimmed) >= 3 {
+			if utf8.RuneCountInString(trimmed) >= 3 {
 				partialKeywords = append(partialKeywords, trimmed)
 			}
 		}
@@ -1716,7 +1721,7 @@ func extractPartialKeywords(keyword string) []string {
 				parts := strings.Split(keyword, sep)
 				for _, part := range parts {
 					trimmed := strings.TrimSpace(part)
-					if len(trimmed) >= 3 {
+					if utf8.RuneCountInString(trimmed) >= 3 {
 						partialKeywords = append(partialKeywords, trimmed)
 					}
 				}
@@ -1726,20 +1731,36 @@ func extractPartialKeywords(keyword string) []string {
 	}
 
 	// 如果还是没有提取到部分关键词，尝试提取前半部分和后半部分
-	if len(partialKeywords) == 0 && len(keyword) > 6 {
-		half := len(keyword) / 2
-		firstHalf := strings.TrimSpace(keyword[:half])
-		secondHalf := strings.TrimSpace(keyword[half:])
+	runes := []rune(keyword)
+	if len(partialKeywords) == 0 && len(runes) > 6 {
+		half := len(runes) / 2
+		firstHalf := strings.TrimSpace(string(runes[:half]))
+		secondHalf := strings.TrimSpace(string(runes[half:]))
 
-		if len(firstHalf) >= 3 {
+		if utf8.RuneCountInString(firstHalf) >= 3 {
 			partialKeywords = append(partialKeywords, firstHalf)
 		}
-		if len(secondHalf) >= 3 {
+		if utf8.RuneCountInString(secondHalf) >= 3 {
 			partialKeywords = append(partialKeywords, secondHalf)
 		}
 	}
 
-	return partialKeywords
+	// 去重并过滤异常关键词，避免乱码关键词污染缓存键
+	seen := make(map[string]struct{}, len(partialKeywords))
+	unique := make([]string, 0, len(partialKeywords))
+	for _, k := range partialKeywords {
+		k = strings.TrimSpace(k)
+		if k == "" || strings.ContainsRune(k, '\uFFFD') {
+			continue
+		}
+		if _, ok := seen[k]; ok {
+			continue
+		}
+		seen[k] = struct{}{}
+		unique = append(unique, k)
+	}
+
+	return unique
 }
 
 // limitLinks 限制每个搜索结果的链接数量，只保留前几个链接

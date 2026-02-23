@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -132,12 +134,12 @@ func (c *EnhancedTwoLevelCache) FlushMemoryToDisk() error {
 }
 
 type DelayedBatchWriteManager struct {
-	operations    chan *CacheOperation
-	mainCache     func(string, []byte, time.Duration) error
-	serializer    CacheSerializer
-	initialized   bool
-	shutdownChan  chan struct{}
-	wg            sync.WaitGroup
+	operations   chan *CacheOperation
+	mainCache    func(string, []byte, time.Duration) error
+	serializer   CacheSerializer
+	initialized  bool
+	shutdownChan chan struct{}
+	wg           sync.WaitGroup
 }
 
 func NewDelayedBatchWriteManager() (*DelayedBatchWriteManager, error) {
@@ -246,7 +248,22 @@ func GenerateTGCacheKey(keyword string, channels []string) string {
 
 func GeneratePluginCacheKey(keyword string, plugins []string) string {
 	key := "plugin:" + keyword
+
+	normalized := make([]string, 0, len(plugins))
 	for _, p := range plugins {
+		name := strings.ToLower(strings.TrimSpace(p))
+		if name == "" {
+			continue
+		}
+		normalized = append(normalized, name)
+	}
+
+	if len(normalized) == 0 {
+		return key + ":all"
+	}
+
+	sort.Strings(normalized)
+	for _, p := range normalized {
 		key += ":" + p
 	}
 	return key
