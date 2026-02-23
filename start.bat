@@ -55,7 +55,7 @@ set CACHE_TTL=120
 set PLUGIN_TIMEOUT=30
 
 REM Authentication
-set AUTH_ENABLED=false
+set AUTH_ENABLED=true
 set AUTH_USERS=admin:123456
 set AUTH_JWT_SECRET=pansou-secret-key-2024
 

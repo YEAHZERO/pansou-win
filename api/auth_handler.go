@@ -31,7 +31,12 @@ func LoginHandler(c *gin.Context) {
 
 	// 验证认证系统是否启用
 	if !config.AppConfig.AuthEnabled {
-		c.JSON(403, gin.H{"error": "认证功能未启用"})
+		// 兼容前端自动登录，返回模拟的成功响应
+		c.JSON(200, LoginResponse{
+			Token:     "mock-token",
+			ExpiresAt: time.Now().Add(24 * time.Hour).Unix(),
+			Username:  req.Username,
+		})
 		return
 	}
 
