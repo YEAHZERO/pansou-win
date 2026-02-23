@@ -48,10 +48,11 @@ go.work.sum
 /node_modules/
 
 # ============ 环境变量和配置文件 ============
-.env
+# 保留 .env 供 Git 同步（包含默认配置）
+!.env
 .env.local
 .env.*.local
-*.env
+
 
 # ============ 日志文件 ============
 *.log
@@ -66,7 +67,7 @@ __debug_bin
 /.trae
 /test
 /.gocache
-/.*
+
 
 # ============ 备份文件 ============
 *.bak

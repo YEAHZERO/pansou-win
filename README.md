@@ -20,17 +20,45 @@
 
 ### 1. 启动服务
 ```bash
-start-simple.bat
+start.bat
 ```
 
 ### 2. 测试搜索
 ```bash
-test-final.bat
+curl "http://localhost:8889/api/search?kw=电影"
 ```
 
 ### 3. 停止服务
 ```bash
 stop.bat
+```
+
+## 近期回归结论（2026-02-23）
+
+### Pioz 修复摘要（`plugin/pioz/pioz.go`）
+
+- 深度搜索接口确认使用 `https://www.pioz.cn/api/deep-search?kw=关键词`
+- 下载链接接口确认使用 `https://www.pioz.cn/api/download-link?id=详情ID`
+- 修复 `deep-search` 返回 `id` 与详情页 `detailID` 不一致问题：先按标题反查详情页ID，再请求 `download-link`
+- 新增稳态保护：资源过期负缓存、详情页404缓存、`data-id` 连续404临时熔断
+- 增加关键诊断日志：`deep-id映射`、`data-id方式成功`
+
+### 回归测试结果（清缓存后）
+
+| 关键词 | 模式 | total | 耗时 | 备注 |
+|------|------|------:|------:|------|
+| 别惹侯府主母，她夫君宠妻无度 | 混合插件 | 1 | ~4s | 命中 `deep-id映射` + `data-id方式成功` |
+| 纵她入骨 | 混合插件 | 1 | ~4s | 命中 `deep-id映射` + `data-id方式成功` |
+| 开局签到仙王修为，建立无上宗门 | 混合插件 | 1 | ~4s | 命中 `deep-id映射` + `data-id方式成功` |
+
+### 推荐运行参数（回归通过）
+
+```batch
+set ENABLED_PLUGINS=pioz,pansearch,wanou,xdpan,zhizhen
+set ASYNC_RESPONSE_TIMEOUT=10
+set PLUGIN_TIMEOUT=30
+set AUTH_ENABLED=false
+set PORT=8889
 ```
 
 ## Pioz 插件特性
@@ -114,14 +142,16 @@ stop.bat
 
 ## 配置说明
 
-### 环境变量（start-simple.bat）
+### 环境变量（start.bat 推荐）
 ```batch
 set PORT=8889                              # 服务端口
-set ENABLED_PLUGINS=pioz                   # 启用的插件
+set ENABLED_PLUGINS=pioz,pansearch,wanou,xdpan,zhizhen
 set ASYNC_RESPONSE_TIMEOUT=10              # 异步超时（秒）
+set PLUGIN_TIMEOUT=30                      # 单插件超时（秒）
 set ASYNC_MAX_BACKGROUND_WORKERS=16        # 工作线程数
 set CACHE_MAX_SIZE=500                     # 缓存大小（MB）
 set CACHE_TTL=120                          # 缓存时间（分钟）
+set AUTH_ENABLED=false                     # 本地回归测试可关闭认证
 ```
 
 ### Pioz 插件配置
@@ -286,7 +316,7 @@ curl "http://localhost:8889/api/search?keyword=电影&refresh=true" \
 rd /s /q cache && mkdir cache
 
 # 2. 重启服务
-stop.bat && start-simple.bat
+stop.bat && start.bat
 
 # 3. 测试网络连接
 curl -I https://www.pioz.cn
@@ -343,22 +373,30 @@ set PORT=8890
 
 详细说明见：[搜索优化与问题解决方案](docs/搜索优化与问题解决方案.md)
 
-### 问题6：Transfer API返回404错误
+### 问题6：深度搜索有结果，但链接获取失败（404/过期）
 
 **症状**：
 ```
-transfer失败: status=404 id=563196
+[pioz] data-id方式失败: status=404 id=1771840516539249562
+[pioz] transfer无结果: success=false body={"error":"资源 已过期","success":false}
 ```
 
 **原因**：
-- 资源ID格式不正确，包含下划线后缀
-- API端点可能已更改
+- `deep-search` 返回的 `id`（如 `177184..._0`）不是详情页 `detailID`（如 `563308`）
+- 直接拿 `deep-search id` 调 `download-link` 或 `transfer` 会出现404或“资源已过期”
 
 **解决方案**：
 
 系统已自动处理：
-1. 修改资源ID提取逻辑，去除下划线后缀
-2. 扩展transfer API端点候选（从8个增加到22个）
+1. 深度结果先按标题回查普通搜索，映射真实 `detailID`
+2. 使用 `https://www.pioz.cn/api/download-link?id={detailID}` 获取链接
+3. 对过期资源、详情404、连续404场景做缓存与熔断，减少重复无效请求
+
+**关键日志**：
+```
+[pioz] deep-id映射: title=... detailID=563308
+[pioz] data-id方式成功: id=563308 link=https://pan.quark.cn/s/...
+```
 
 详细说明见：[搜索优化与问题解决方案](docs/搜索优化与问题解决方案.md)
 
@@ -691,9 +729,9 @@ pansou/
 │   └── ...               # 其他工具
 ├── docs/                  # 文档
 │   └── 插件开发指南.md    # 插件开发指南
-├── start-simple.bat       # 启动脚本（推荐）
+├── start.bat              # 启动脚本（推荐）
 ├── stop.bat              # 停止脚本
-├── test-final.bat        # 测试脚本
+├── build.bat             # 编译脚本
 └── main.go               # 程序入口
 ```
 
@@ -818,7 +856,7 @@ go build '-ldflags' '-s -w' -trimpath -o pansou.exe
 #- -trimpath - 去除文件路径信息（增强安全性）
 
 **版本**: v8.1  
-**更新**: 2026-02-19  
+**更新**: 2026-02-23  
 **状态**: ✅ 生产可用  
 
 **维护者**: abcxyzNone  
@@ -826,6 +864,10 @@ go build '-ldflags' '-s -w' -trimpath -o pansou.exe
 **致谢**: PanSou Team & fish2018
 
 **最近更新**：
+- ✅ Pioz深度ID修复：新增 deep-id→detailID 映射，修复 `download-link` 404
+- ✅ Pioz稳定性增强：新增过期资源负缓存、详情404缓存、data-id连续404熔断
+- ✅ 混合插件回归验证：3个关键词稳定返回 `total=1`，响应约 `~4s`
+- ✅ 推荐参数落地：`ASYNC_RESPONSE_TIMEOUT=10`、`PLUGIN_TIMEOUT=30`
 - ✅ 搜索优化：实现部分剧名搜索功能，当搜索结果为0时自动提取剧名的一部分进行重试
 - ✅ 链接数量限制：每个搜索结果只保留前3个链接，减少返回数据量
 - ✅ 插件优先级配置：统一配置所有插件优先级为1，优化搜索结果排序

@@ -1,4 +1,4 @@
-@echo off
+﻿@echo off
 chcp 65001 >nul
 title PanSou Service - Simple Start
 
@@ -52,10 +52,10 @@ set ASYNC_MAX_BACKGROUND_WORKERS=16
 set ASYNC_MAX_BACKGROUND_TASKS=80
 set CACHE_MAX_SIZE=500
 set CACHE_TTL=120
-set PLUGIN_TIMEOUT=20
+set PLUGIN_TIMEOUT=30
 
 REM Authentication
-set AUTH_ENABLED=true
+set AUTH_ENABLED=false
 set AUTH_USERS=admin:123456
 set AUTH_JWT_SECRET=pansou-secret-key-2024
 

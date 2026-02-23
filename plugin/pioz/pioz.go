@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html"
 	"io"
 	"net/http"
 	"net/url"
@@ -18,6 +19,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode"
 
 	"github.com/PuerkitoBio/goquery"
 )
@@ -61,6 +63,13 @@ const (
 	RequestDelayMax = 1500 * time.Millisecond
 	RetryCount      = 2
 
+	// Failure cooldowns (used to avoid hammering known-dead IDs/pages).
+	ResourceFailureTTL = 10 * time.Minute
+	ExpiredResourceTTL = 6 * time.Hour
+	Detail404CacheTTL  = 30 * time.Minute
+	DataIDDisableTTL   = 30 * time.Minute
+	DataID404Threshold = 3
+
 	// 详情增强最多处理多少条结果，避免对目标站造成过大压力
 	MaxEnhancedResults = 10
 
@@ -96,6 +105,7 @@ var (
 	quotedPathRegex        = regexp.MustCompile(`["'](\/[^"']{2,})["']`)
 	locationAssignRegex    = regexp.MustCompile(`(?i)(?:location\.href|window\.location|window\.open|url)\s*[:=]\s*["']([^"']+)["']`)
 	jsInvokeRegex          = regexp.MustCompile(`([a-zA-Z_][a-zA-Z0-9_]*)\(([^)]*)\)`)
+	titleLeadingIndexRegex = regexp.MustCompile(`^\s*\d+[\.、]\s*`)
 
 	// 提取码/密码匹配：支持“提取码/密码/pwd/码: XXXX”
 	passwordRegex    = regexp.MustCompile("(?i)(?:\u63d0\u53d6\u7801|\u5bc6\u7801|pwd|\u7801)[\uff1a:]\\s*([a-zA-Z0-9]{4})")
@@ -136,6 +146,11 @@ type TransferResponse struct {
 	Error string `json:"error"`
 }
 
+type failureStamp struct {
+	until  time.Time
+	reason string
+}
+
 // =========================
 // 缓存与指标
 // =========================
@@ -147,6 +162,12 @@ var (
 	detailCache = sync.Map{}
 	// transfer 缓存：resourceID -> []Link
 	transferCache = sync.Map{}
+	// resource 失败缓存：resourceID -> failureStamp
+	resourceFailureCache = sync.Map{}
+	// detail 404 缓存：detailURL -> expiryTime
+	detail404Cache = sync.Map{}
+	// 标题->详情ID 映射缓存（用于 deep id 转真实 detail id）
+	titleDetailIDCache = sync.Map{}
 
 	sessionCookies  []*http.Cookie
 	sessionMutex    sync.RWMutex
@@ -162,6 +183,8 @@ var (
 	antiCrawlerBlocks int64 = 0
 	totalSearchTime   int64 = 0
 	totalDetailTime   int64 = 0
+	dataIDDisabledTo  int64 = 0
+	dataID404Count    int64 = 0
 )
 
 // =========================
@@ -231,6 +254,329 @@ func (p *PiozAsyncPlugin) putLink(link *model.Link) {
 	link.URL = ""
 	link.Password = ""
 	p.linkPool.Put(link)
+}
+
+func (p *PiozAsyncPlugin) markResourceFailure(resourceID string, ttl time.Duration, reason string) {
+	if resourceID == "" || ttl <= 0 {
+		return
+	}
+	resourceFailureCache.Store(resourceID, failureStamp{
+		until:  time.Now().Add(ttl),
+		reason: reason,
+	})
+}
+
+func (p *PiozAsyncPlugin) isResourceFailureActive(resourceID string) (bool, string) {
+	if resourceID == "" {
+		return false, ""
+	}
+	v, ok := resourceFailureCache.Load(resourceID)
+	if !ok {
+		return false, ""
+	}
+	stamp, ok := v.(failureStamp)
+	if !ok {
+		resourceFailureCache.Delete(resourceID)
+		return false, ""
+	}
+	if time.Now().After(stamp.until) {
+		resourceFailureCache.Delete(resourceID)
+		return false, ""
+	}
+	return true, stamp.reason
+}
+
+func (p *PiozAsyncPlugin) markDetail404(detailURL, resourceID string) {
+	if detailURL != "" {
+		detail404Cache.Store(detailURL, time.Now().Add(Detail404CacheTTL))
+	}
+	if resourceID != "" {
+		p.markResourceFailure(resourceID, ResourceFailureTTL, "detail_404")
+	}
+}
+
+func (p *PiozAsyncPlugin) isDetail404Active(detailURL string) bool {
+	if detailURL == "" {
+		return false
+	}
+	v, ok := detail404Cache.Load(detailURL)
+	if !ok {
+		return false
+	}
+	expiry, ok := v.(time.Time)
+	if !ok {
+		detail404Cache.Delete(detailURL)
+		return false
+	}
+	if time.Now().After(expiry) {
+		detail404Cache.Delete(detailURL)
+		return false
+	}
+	return true
+}
+
+func (p *PiozAsyncPlugin) isDataIDDisabled() bool {
+	until := atomic.LoadInt64(&dataIDDisabledTo)
+	if until == 0 {
+		return false
+	}
+	if time.Now().UnixNano() < until {
+		return true
+	}
+	atomic.CompareAndSwapInt64(&dataIDDisabledTo, until, 0)
+	return false
+}
+
+func (p *PiozAsyncPlugin) registerDataID404() bool {
+	count := atomic.AddInt64(&dataID404Count, 1)
+	if count < DataID404Threshold {
+		return false
+	}
+	atomic.StoreInt64(&dataID404Count, 0)
+	atomic.StoreInt64(&dataIDDisabledTo, time.Now().Add(DataIDDisableTTL).UnixNano())
+	return true
+}
+
+func (p *PiozAsyncPlugin) resetDataID404Counter() {
+	atomic.StoreInt64(&dataID404Count, 0)
+}
+
+func (p *PiozAsyncPlugin) isExpiredResourceError(msg string) bool {
+	if msg == "" {
+		return false
+	}
+	normalized := strings.ToLower(msg)
+	normalized = strings.Map(func(r rune) rune {
+		if unicode.IsSpace(r) {
+			return -1
+		}
+		return r
+	}, normalized)
+	normalized = strings.ReplaceAll(normalized, `"`, "")
+
+	return strings.Contains(normalized, "资源已过期") ||
+		strings.Contains(normalized, "resourceexpired") ||
+		strings.Contains(normalized, "expired")
+}
+
+func (p *PiozAsyncPlugin) deduplicateResultsByResource(results []model.SearchResult) []model.SearchResult {
+	if len(results) <= 1 {
+		return results
+	}
+	scoreTitle := func(title string) int {
+		t := strings.TrimSpace(title)
+		if t == "" {
+			return -100
+		}
+		score := 0
+		lower := strings.ToLower(t)
+		if strings.Contains(t, "（") || strings.Contains(t, "(") {
+			score += 2
+		}
+		if strings.Contains(t, "《") && strings.Contains(t, "》") {
+			score += 1
+		}
+		if len([]rune(t)) <= 30 {
+			score += 2
+		}
+		if len([]rune(t)) > 60 {
+			score -= 2
+		}
+
+		noise := []string{
+			"全网免费短剧网盘合集",
+			"备用地址",
+			"求剧与反馈",
+			"声明",
+			"首页短剧",
+			"观看地址",
+			"免费在线观看完整版",
+			"热度",
+		}
+		for _, n := range noise {
+			if strings.Contains(lower, strings.ToLower(n)) {
+				score -= 4
+			}
+		}
+		return score
+	}
+
+	bestByResource := make(map[string]model.SearchResult, len(results))
+	bestScoreByResource := make(map[string]int, len(results))
+	seenByUniqueID := make(map[string]struct{}, len(results))
+	order := make([]string, 0, len(results))
+	out := make([]model.SearchResult, 0, len(results))
+
+	for _, r := range results {
+		resourceID := p.extractResourceID(r.UniqueID)
+		if resourceID != "" {
+			if _, ok := bestByResource[resourceID]; !ok {
+				order = append(order, resourceID)
+				bestByResource[resourceID] = r
+				bestScoreByResource[resourceID] = scoreTitle(r.Title)
+				continue
+			}
+			s := scoreTitle(r.Title)
+			if s > bestScoreByResource[resourceID] {
+				bestByResource[resourceID] = r
+				bestScoreByResource[resourceID] = s
+			}
+			continue
+		}
+
+		if r.UniqueID != "" {
+			if _, ok := seenByUniqueID[r.UniqueID]; ok {
+				continue
+			}
+			seenByUniqueID[r.UniqueID] = struct{}{}
+		}
+		out = append(out, r)
+	}
+
+	for _, resourceID := range order {
+		out = append(out, bestByResource[resourceID])
+	}
+	return out
+}
+
+func (p *PiozAsyncPlugin) isLikelyDetailID(id string) bool {
+	if id == "" {
+		return false
+	}
+	if len(id) < 4 || len(id) > 10 {
+		return false
+	}
+	for _, r := range id {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func (p *PiozAsyncPlugin) normalizeTitleKey(s string) string {
+	s = strings.TrimSpace(strings.ToLower(html.UnescapeString(s)))
+	if s == "" {
+		return ""
+	}
+
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case unicode.Is(unicode.Han, r), unicode.IsDigit(r), unicode.IsLetter(r):
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+func (p *PiozAsyncPlugin) buildTitleCandidates(title string) []string {
+	base := strings.TrimSpace(html.UnescapeString(title))
+	if base == "" {
+		return nil
+	}
+
+	var out []string
+	add := func(v string) {
+		v = strings.TrimSpace(v)
+		if v == "" {
+			return
+		}
+		for _, existing := range out {
+			if existing == v {
+				return
+			}
+		}
+		out = append(out, v)
+	}
+
+	add(base)
+	clean := titleLeadingIndexRegex.ReplaceAllString(base, "")
+	add(clean)
+	if idx := strings.IndexAny(clean, "（("); idx > 0 {
+		add(clean[:idx])
+	}
+	for _, sep := range []string{"，", ",", "、", "：", ":"} {
+		if parts := strings.Split(clean, sep); len(parts) > 1 {
+			for _, part := range parts {
+				if len([]rune(strings.TrimSpace(part))) >= 4 {
+					add(part)
+				}
+			}
+		}
+	}
+	if idx := strings.Index(clean, "《"); idx >= 0 {
+		if end := strings.Index(clean[idx+len("《"):], "》"); end >= 0 {
+			add(clean[idx+len("《") : idx+len("《")+end])
+		}
+	}
+	fields := strings.FieldsFunc(clean, func(r rune) bool {
+		return unicode.IsSpace(r) || r == '|' || r == '-' || r == '_'
+	})
+	if len(fields) > 0 {
+		add(fields[0])
+	}
+
+	return out
+}
+
+func (p *PiozAsyncPlugin) resolveDetailIDByTitle(client *http.Client, title string) string {
+	key := p.normalizeTitleKey(title)
+	if key == "" {
+		return ""
+	}
+	if cached, ok := titleDetailIDCache.Load(key); ok {
+		if id, ok := cached.(string); ok && id != "" {
+			return id
+		}
+	}
+
+	target := p.normalizeTitleKey(title)
+	candidates := p.buildTitleCandidates(title)
+	for _, query := range candidates {
+		results, err := p.performRegularSearch(client, query)
+		if err != nil || len(results) == 0 {
+			continue
+		}
+
+		bestID := ""
+		bestScore := -1
+		firstID := ""
+		for _, r := range results {
+			id := p.extractResourceID(r.UniqueID)
+			if !p.isLikelyDetailID(id) {
+				continue
+			}
+			if firstID == "" {
+				firstID = id
+			}
+
+			score := 0
+			rt := p.normalizeTitleKey(r.Title)
+			if rt == target {
+				score = 3
+			} else if strings.Contains(rt, target) || strings.Contains(target, rt) {
+				score = 2
+			} else if strings.Contains(rt, p.normalizeTitleKey(query)) {
+				score = 1
+			}
+
+			if score > bestScore {
+				bestScore = score
+				bestID = id
+			}
+		}
+
+		if bestID == "" {
+			bestID = firstID
+		}
+		if bestID != "" {
+			titleDetailIDCache.Store(key, bestID)
+			return bestID
+		}
+	}
+
+	return ""
 }
 
 // Search 兼容旧接口：只返回结果数组。
@@ -1041,6 +1387,8 @@ func (p *PiozAsyncPlugin) enhanceDeepSearchResults(client *http.Client, results 
 		return results
 	}
 
+	results = p.deduplicateResultsByResource(results)
+
 	if len(results) > MaxEnhancedResults {
 		results = results[:MaxEnhancedResults]
 	}
@@ -1111,6 +1459,8 @@ func (p *PiozAsyncPlugin) enhanceWithDetails(client *http.Client, results []mode
 	if len(results) == 0 {
 		return results
 	}
+
+	results = p.deduplicateResultsByResource(results)
 
 	if len(results) > MaxEnhancedResults {
 		results = results[:MaxEnhancedResults]
@@ -1187,22 +1537,40 @@ func (p *PiozAsyncPlugin) fetchResourceInfo(client *http.Client, result model.Se
 		atomic.AddInt64(&totalDetailTime, duration)
 	}()
 
+	normalizedResult := result
+	if strings.Contains(result.UniqueID, "-deep-") {
+		if detailID := p.resolveDetailIDByTitle(client, result.Title); p.isLikelyDetailID(detailID) {
+			detailURL := fmt.Sprintf("%s/detail/%s", SiteBaseURL, detailID)
+			normalizedResult.UniqueID = fmt.Sprintf("%s-detail-%s", p.Name(), url.QueryEscape(detailURL))
+			fmt.Printf("[%s] deep-id映射: title=%s detailID=%s\n", p.Name(), result.Title, detailID)
+		}
+	}
+
+	resourceID := p.extractResourceID(normalizedResult.UniqueID)
+	if active, reason := p.isResourceFailureActive(resourceID); active {
+		fmt.Printf("[%s] resource跳过: id=%s reason=%s\n", p.Name(), resourceID, reason)
+		return nil
+	}
+
 	// 1. 优先尝试新方式：通过data-id直接获取链接
-	links := p.tryDataIDMethod(client, result)
+	links := p.tryDataIDMethod(client, normalizedResult)
 	if len(links) > 0 {
 		fmt.Printf("[%s] data-id方式命中: title=%s links=%d\n", p.Name(), result.Title, len(links))
 		return links
 	}
 
 	// 2. 备用：transfer API
-	links = p.tryTransferAPI(client, result)
+	links = p.tryTransferAPI(client, normalizedResult)
 	if len(links) > 0 {
 		fmt.Printf("[%s] transfer命中: title=%s links=%d\n", p.Name(), result.Title, len(links))
 		return links
 	}
+	if active, reason := p.isResourceFailureActive(resourceID); active && reason == "transfer_expired" {
+		return nil
+	}
 
 	// 3. 兜底：详情页解析（保留原来的二次跳转功能）
-	links = p.parseResourceDetailPage(client, result)
+	links = p.parseResourceDetailPage(client, normalizedResult)
 	if len(links) > 0 {
 		fmt.Printf("[%s] detail命中: title=%s links=%d\n", p.Name(), result.Title, len(links))
 	} else {
@@ -1280,10 +1648,16 @@ func (p *PiozAsyncPlugin) parseDetailURLFromUniqueID(uniqueID string) string {
 			if strings.Contains(resourceID, "_") {
 				idParts := strings.SplitN(resourceID, "_", 2)
 				if len(idParts) >= 1 {
-					return fmt.Sprintf("%s/detail/%s", SiteBaseURL, idParts[0])
+					if p.isLikelyDetailID(idParts[0]) {
+						return fmt.Sprintf("%s/detail/%s", SiteBaseURL, idParts[0])
+					}
+					return ""
 				}
 			}
-			return fmt.Sprintf("%s/detail/%s", SiteBaseURL, resourceID)
+			if p.isLikelyDetailID(resourceID) {
+				return fmt.Sprintf("%s/detail/%s", SiteBaseURL, resourceID)
+			}
+			return ""
 		}
 	}
 
@@ -1303,6 +1677,10 @@ func (p *PiozAsyncPlugin) parseDetailURLFromUniqueID(uniqueID string) string {
 // tryTransferAPI 调用 transfer API 尝试直接获取可用分享链接。
 // tryDataIDMethod 通过data-id属性直接获取链接（新方式，无需二次跳转）
 func (p *PiozAsyncPlugin) tryDataIDMethod(client *http.Client, result model.SearchResult) []model.Link {
+	if p.isDataIDDisabled() {
+		return nil
+	}
+
 	// 从UniqueID中提取资源ID
 	resourceID := p.extractResourceID(result.UniqueID)
 	if resourceID == "" {
@@ -1318,6 +1696,12 @@ func (p *PiozAsyncPlugin) tryDataIDMethod(client *http.Client, result model.Sear
 	if resourceID == "" {
 		return nil
 	}
+	if !p.isLikelyDetailID(resourceID) {
+		return nil
+	}
+	if active, _ := p.isResourceFailureActive(resourceID); active {
+		return nil
+	}
 
 	// 检查缓存
 	cacheKey := fmt.Sprintf("dataid:%s", resourceID)
@@ -1328,7 +1712,7 @@ func (p *PiozAsyncPlugin) tryDataIDMethod(client *http.Client, result model.Sear
 	}
 
 	// 使用新的download-link API获取链接
-	downloadURL := fmt.Sprintf("%s/api/download-link?id=%s", APIBaseURL, url.QueryEscape(resourceID))
+	downloadURL := fmt.Sprintf("%s/download-link?id=%s", APIBaseURL, url.QueryEscape(resourceID))
 
 	req, err := http.NewRequest("GET", downloadURL, nil)
 	if err != nil {
@@ -1352,8 +1736,14 @@ func (p *PiozAsyncPlugin) tryDataIDMethod(client *http.Client, result model.Sear
 
 	if resp.StatusCode != 200 {
 		fmt.Printf("[%s] data-id方式失败: status=%d id=%s\n", p.Name(), resp.StatusCode, resourceID)
+		if resp.StatusCode == http.StatusNotFound {
+			if p.registerDataID404() {
+				fmt.Printf("[%s] data-id临时禁用: 连续404达到阈值(%d)，禁用时长=%s\n", p.Name(), DataID404Threshold, DataIDDisableTTL)
+			}
+		}
 		return nil
 	}
+	p.resetDataID404Counter()
 
 	body, err := p.readCompressedBody(resp)
 	if err != nil {
@@ -1414,6 +1804,12 @@ func (p *PiozAsyncPlugin) tryTransferAPI(client *http.Client, result model.Searc
 		fmt.Printf("[%s] transfer跳过: 无resourceID uniqueID=%s\n", p.Name(), result.UniqueID)
 		return nil
 	}
+	if !p.isLikelyDetailID(resourceID) {
+		return nil
+	}
+	if active, _ := p.isResourceFailureActive(resourceID); active {
+		return nil
+	}
 
 	cacheKey := fmt.Sprintf("transfer:%s", resourceID)
 	if cached, ok := transferCache.Load(cacheKey); ok {
@@ -1453,6 +1849,7 @@ func (p *PiozAsyncPlugin) tryTransferAPI(client *http.Client, result model.Searc
 				fmt.Printf("[%s] transfer兜底命中: id=%s links=%d\n", p.Name(), resourceID, len(links))
 				return links
 			}
+			p.markResourceFailure(resourceID, ResourceFailureTTL, "transfer_404")
 		}
 		return nil
 	}
@@ -1470,6 +1867,9 @@ func (p *PiozAsyncPlugin) tryTransferAPI(client *http.Client, result model.Searc
 
 	if !transferResp.Success || transferResp.Data.URL == "" {
 		fmt.Printf("[%s] transfer无结果: success=%v id=%s body=%s\n", p.Name(), transferResp.Success, resourceID, string(body))
+		if p.isExpiredResourceError(transferResp.Error) || p.isExpiredResourceError(string(body)) {
+			p.markResourceFailure(resourceID, ExpiredResourceTTL, "transfer_expired")
+		}
 		return nil
 	}
 
@@ -1513,15 +1913,15 @@ func (p *PiozAsyncPlugin) tryTransferEndpointFallbacks(client *http.Client, reso
 		fmt.Sprintf("%s/link?id=%s", APIBaseURL, url.QueryEscape(resourceID)),
 		fmt.Sprintf("%s/source?id=%s", APIBaseURL, url.QueryEscape(resourceID)),
 		// 添加更多可能的API端点
-		fmt.Sprintf("%s/api/transfer?id=%s", APIBaseURL, url.QueryEscape(resourceID)),
-		fmt.Sprintf("%s/api/share?id=%s", APIBaseURL, url.QueryEscape(resourceID)),
-		fmt.Sprintf("%s/api/getShare?id=%s", APIBaseURL, url.QueryEscape(resourceID)),
-		fmt.Sprintf("%s/api/link?id=%s", APIBaseURL, url.QueryEscape(resourceID)),
-		fmt.Sprintf("%s/api/source?id=%s", APIBaseURL, url.QueryEscape(resourceID)),
-		fmt.Sprintf("%s/api/v1/transfer?id=%s", APIBaseURL, url.QueryEscape(resourceID)),
-		fmt.Sprintf("%s/api/v1/share?id=%s", APIBaseURL, url.QueryEscape(resourceID)),
-		fmt.Sprintf("%s/api/v2/transfer?id=%s", APIBaseURL, url.QueryEscape(resourceID)),
-		fmt.Sprintf("%s/api/v2/share?id=%s", APIBaseURL, url.QueryEscape(resourceID)),
+		fmt.Sprintf("%s/api/transfer?id=%s", SiteBaseURL, url.QueryEscape(resourceID)),
+		fmt.Sprintf("%s/api/share?id=%s", SiteBaseURL, url.QueryEscape(resourceID)),
+		fmt.Sprintf("%s/api/getShare?id=%s", SiteBaseURL, url.QueryEscape(resourceID)),
+		fmt.Sprintf("%s/api/link?id=%s", SiteBaseURL, url.QueryEscape(resourceID)),
+		fmt.Sprintf("%s/api/source?id=%s", SiteBaseURL, url.QueryEscape(resourceID)),
+		fmt.Sprintf("%s/api/v1/transfer?id=%s", SiteBaseURL, url.QueryEscape(resourceID)),
+		fmt.Sprintf("%s/api/v1/share?id=%s", SiteBaseURL, url.QueryEscape(resourceID)),
+		fmt.Sprintf("%s/api/v2/transfer?id=%s", SiteBaseURL, url.QueryEscape(resourceID)),
+		fmt.Sprintf("%s/api/v2/share?id=%s", SiteBaseURL, url.QueryEscape(resourceID)),
 		fmt.Sprintf("%s/share/transfer?id=%s", APIBaseURL, url.QueryEscape(resourceID)),
 		fmt.Sprintf("%s/share/link?id=%s", APIBaseURL, url.QueryEscape(resourceID)),
 		fmt.Sprintf("%s/resource/share?id=%s", APIBaseURL, url.QueryEscape(resourceID)),
@@ -1671,6 +2071,17 @@ func (p *PiozAsyncPlugin) fetchRealLinkViaServerAction(client *http.Client, deta
 		cancel()
 		return nil
 	}
+	if resp.StatusCode == http.StatusNotFound {
+		resp.Body.Close()
+		cancel()
+		p.markDetail404(detailURL, resourceID)
+		return nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		resp.Body.Close()
+		cancel()
+		return nil
+	}
 	body, err := p.readCompressedBody(resp)
 	resp.Body.Close()
 	cancel()
@@ -1806,9 +2217,16 @@ func (p *PiozAsyncPlugin) extractServerActionIDFromJSFiles(client *http.Client, 
 func (p *PiozAsyncPlugin) parseResourceDetailPage(client *http.Client, result model.SearchResult) []model.Link {
 
 	detailURL := p.parseDetailURLFromUniqueID(result.UniqueID)
+	resourceID := p.extractResourceID(result.UniqueID)
 
 	if detailURL == "" {
 		fmt.Printf("[%s] detail跳过: 无detailURL uniqueID=%s\n", p.Name(), result.UniqueID)
+		return nil
+	}
+	if p.isDetail404Active(detailURL) {
+		return nil
+	}
+	if active, _ := p.isResourceFailureActive(resourceID); active {
 		return nil
 	}
 
@@ -1851,6 +2269,9 @@ func (p *PiozAsyncPlugin) parseResourceDetailPage(client *http.Client, result mo
 
 	if resp.StatusCode != 200 {
 		fmt.Printf("[%s] detail失败: status=%d url=%s\n", p.Name(), resp.StatusCode, detailURL)
+		if resp.StatusCode == http.StatusNotFound {
+			p.markDetail404(detailURL, resourceID)
+		}
 		return nil
 	}
 
