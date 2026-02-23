@@ -115,14 +115,12 @@ var (
 type DeepSearchResponse struct {
 	Code    int `json:"code"`
 	Results []struct {
-		ID         int    `json:"id"`
-		Title      string `json:"title"`
-		CloudType  string `json:"cloud_type"`
-		Datetime   string `json:"datetime"`
-		Size       string `json:"size"`
-		Desc       string `json:"desc"`
-		CreateTime string `json:"create_time"`
-		ViewURL    string `json:"view_url"`
+		ID        string `json:"id"`
+		Title     string `json:"title"`
+		CloudType string `json:"cloud_type"`
+		Datetime  string `json:"datetime"`
+		URL       string `json:"url"`
+		Password  string `json:"password"`
 	} `json:"results"`
 	Total   int    `json:"total"`
 	Message string `json:"message"`
@@ -351,6 +349,7 @@ func (p *PiozAsyncPlugin) searchImpl(client *http.Client, keyword string, ext ma
 // =========================
 
 // performDeepSearch 调用 pioz deep-search API。
+// 深度搜索 API 返回的结果需要通过 Server Action 获取真实链接
 func (p *PiozAsyncPlugin) performDeepSearch(client *http.Client, keyword string) ([]model.SearchResult, error) {
 	apiURL := fmt.Sprintf("%s/deep-search?kw=%s", APIBaseURL, url.QueryEscape(keyword))
 
@@ -389,6 +388,8 @@ func (p *PiozAsyncPlugin) performDeepSearch(client *http.Client, keyword string)
 
 	var apiResp DeepSearchResponse
 	if err := json.Unmarshal(body, &apiResp); err != nil {
+		// 尝试不同的JSON格式解析
+		fmt.Printf("[%s] 深度搜索API JSON解析失败，尝试备用格式: %v\n", p.Name(), err)
 		return nil, fmt.Errorf("\u89e3\u6790API\u54cd\u5e94\u5931\u8d25: %w", err)
 	}
 
@@ -741,14 +742,12 @@ func (p *PiozAsyncPlugin) extractFromHotSearch(client *http.Client, keyword stri
 
 // convertAPIResultToSearchResult 将 API 返回结构转换为统一 SearchResult。
 func (p *PiozAsyncPlugin) convertAPIResultToSearchResult(item struct {
-	ID         int    `json:"id"`
-	Title      string `json:"title"`
-	CloudType  string `json:"cloud_type"`
-	Datetime   string `json:"datetime"`
-	Size       string `json:"size"`
-	Desc       string `json:"desc"`
-	CreateTime string `json:"create_time"`
-	ViewURL    string `json:"view_url"`
+	ID        string `json:"id"`
+	Title     string `json:"title"`
+	CloudType string `json:"cloud_type"`
+	Datetime  string `json:"datetime"`
+	URL       string `json:"url"`
+	Password  string `json:"password"`
 }) model.SearchResult {
 
 	cloudTypeName := p.getCloudTypeName(item.CloudType)
@@ -760,33 +759,33 @@ func (p *PiozAsyncPlugin) convertAPIResultToSearchResult(item struct {
 	if item.Datetime != "" {
 		contentParts = append(contentParts, "\u65f6\u95f4: "+item.Datetime)
 	}
-	if item.Size != "" {
-		contentParts = append(contentParts, "\u5927\u5c0f: "+item.Size)
-	}
-	if item.Desc != "" {
-		contentParts = append(contentParts, "\u63cf\u8ff0: "+item.Desc)
-	}
-
-	viewURL := item.ViewURL
-	if viewURL == "" {
-		viewURL = fmt.Sprintf("%s/detail/%d", SiteBaseURL, item.ID)
-	}
 
 	var datetime time.Time
 	if item.Datetime != "" {
-		if parsedTime, err := time.Parse("2006-01-02", item.Datetime); err == nil {
+		if parsedTime, err := time.Parse("2006-01-02T15:04:05Z", item.Datetime); err == nil {
 			datetime = parsedTime
-		} else if parsedTime, err := time.Parse("2006-01-02 15:04:05", item.Datetime); err == nil {
+		} else if parsedTime, err := time.Parse("2006-01-02 15:04", item.Datetime); err == nil {
+			datetime = parsedTime
+		} else if parsedTime, err := time.Parse("2006-01-02", item.Datetime); err == nil {
 			datetime = parsedTime
 		}
 	}
 
+	var links []model.Link
+	if item.URL != "" && p.isValidNetworkDriveURL(item.URL) {
+		links = append(links, model.Link{
+			Type:     p.determineLinkType(item.URL),
+			URL:      item.URL,
+			Password: item.Password,
+		})
+	}
+
 	return model.SearchResult{
-		UniqueID: fmt.Sprintf("%s-%d-%s", p.Name(), item.ID, url.QueryEscape(viewURL)),
+		UniqueID: fmt.Sprintf("%s-deep-%s", p.Name(), item.ID),
 		Title:    item.Title,
 		Content:  strings.Join(contentParts, "\n"),
 		Tags:     []string{},
-		Links:    []model.Link{},
+		Links:    links,
 		Images:   []string{},
 		Channel:  "",
 		Datetime: datetime,
@@ -1178,7 +1177,7 @@ func (p *PiozAsyncPlugin) enhanceWithDetails(client *http.Client, results []mode
 	return enhancedResults
 }
 
-// fetchResourceInfo 单条结果增强入口：先 transfer API，再详情页解析。
+// fetchResourceInfo 单条结果增强入口：先尝试新方式（data-id），再transfer API，最后详情页解析。
 func (p *PiozAsyncPlugin) fetchResourceInfo(client *http.Client, result model.SearchResult) []model.Link {
 
 	start := time.Now()
@@ -1188,12 +1187,21 @@ func (p *PiozAsyncPlugin) fetchResourceInfo(client *http.Client, result model.Se
 		atomic.AddInt64(&totalDetailTime, duration)
 	}()
 
-	links := p.tryTransferAPI(client, result)
+	// 1. 优先尝试新方式：通过data-id直接获取链接
+	links := p.tryDataIDMethod(client, result)
+	if len(links) > 0 {
+		fmt.Printf("[%s] data-id方式命中: title=%s links=%d\n", p.Name(), result.Title, len(links))
+		return links
+	}
+
+	// 2. 备用：transfer API
+	links = p.tryTransferAPI(client, result)
 	if len(links) > 0 {
 		fmt.Printf("[%s] transfer命中: title=%s links=%d\n", p.Name(), result.Title, len(links))
 		return links
 	}
 
+	// 3. 兜底：详情页解析（保留原来的二次跳转功能）
 	links = p.parseResourceDetailPage(client, result)
 	if len(links) > 0 {
 		fmt.Printf("[%s] detail命中: title=%s links=%d\n", p.Name(), result.Title, len(links))
@@ -1293,6 +1301,102 @@ func (p *PiozAsyncPlugin) parseDetailURLFromUniqueID(uniqueID string) string {
 }
 
 // tryTransferAPI 调用 transfer API 尝试直接获取可用分享链接。
+// tryDataIDMethod 通过data-id属性直接获取链接（新方式，无需二次跳转）
+func (p *PiozAsyncPlugin) tryDataIDMethod(client *http.Client, result model.SearchResult) []model.Link {
+	// 从UniqueID中提取资源ID
+	resourceID := p.extractResourceID(result.UniqueID)
+	if resourceID == "" {
+		// 备用：从详情页URL中提取ID
+		detailURL := p.parseDetailURLFromUniqueID(result.UniqueID)
+		if detailURL != "" {
+			if matches := detailIDRegex.FindStringSubmatch(detailURL); len(matches) > 1 {
+				resourceID = matches[1]
+			}
+		}
+	}
+
+	if resourceID == "" {
+		return nil
+	}
+
+	// 检查缓存
+	cacheKey := fmt.Sprintf("dataid:%s", resourceID)
+	if cached, ok := transferCache.Load(cacheKey); ok {
+		if links, ok := cached.([]model.Link); ok && len(links) > 0 {
+			return links
+		}
+	}
+
+	// 使用新的download-link API获取链接
+	downloadURL := fmt.Sprintf("%s/api/download-link?id=%s", APIBaseURL, url.QueryEscape(resourceID))
+
+	req, err := http.NewRequest("GET", downloadURL, nil)
+	if err != nil {
+		return nil
+	}
+
+	p.setAPIHeaders(req)
+	p.addSessionCookies(req)
+
+	resp, err := p.doRequestWithRetry(client, req)
+	if err != nil {
+		fmt.Printf("[%s] data-id方式失败: request err=%v id=%s\n", p.Name(), err, resourceID)
+		return nil
+	}
+	defer resp.Body.Close()
+
+	if p.checkAntiCrawlerResponse(resp) {
+		atomic.AddInt64(&antiCrawlerBlocks, 1)
+		return nil
+	}
+
+	if resp.StatusCode != 200 {
+		fmt.Printf("[%s] data-id方式失败: status=%d id=%s\n", p.Name(), resp.StatusCode, resourceID)
+		return nil
+	}
+
+	body, err := p.readCompressedBody(resp)
+	if err != nil {
+		return nil
+	}
+
+	if antiCrawlerRegex.Match(body) {
+		atomic.AddInt64(&antiCrawlerBlocks, 1)
+		return nil
+	}
+
+	var apiResp struct {
+		Success bool   `json:"success"`
+		Link    string `json:"link"`
+	}
+
+	if err := json.Unmarshal(body, &apiResp); err != nil {
+		return nil
+	}
+
+	if !apiResp.Success || apiResp.Link == "" {
+		return nil
+	}
+
+	// 只保留 https://pan.quark.cn/s/ 格式的链接
+	if !strings.HasPrefix(apiResp.Link, "https://pan.quark.cn/s/") {
+		return nil
+	}
+
+	links := []model.Link{
+		{
+			Type:     p.determineLinkType(apiResp.Link),
+			URL:      apiResp.Link,
+			Password: "",
+		},
+	}
+
+	// 缓存结果
+	transferCache.Store(cacheKey, links)
+	fmt.Printf("[%s] data-id方式成功: id=%s link=%s\n", p.Name(), resourceID, apiResp.Link)
+	return links
+}
+
 func (p *PiozAsyncPlugin) tryTransferAPI(client *http.Client, result model.SearchResult) []model.Link {
 
 	resourceID := p.extractResourceID(result.UniqueID)
@@ -2312,74 +2416,98 @@ func (p *PiozAsyncPlugin) resolveRedirectShareLinksWithReferer(client *http.Clie
 // extractLinksFromDocument 从详情页文档中提取并去重链接，同时尝试提取提取码。
 func (p *PiozAsyncPlugin) extractLinksFromDocument(doc *goquery.Document) []model.Link {
 	var links []model.Link
-	pageText := doc.Text()
 
-	urls := p.extractAllURLs(pageText)
-
-	doc.Find("a[href]").Each(func(i int, s *goquery.Selection) {
-		href, exists := s.Attr("href")
-		if exists && p.isValidNetworkDriveURL(href) {
-			urls = append(urls, href)
+	// 1. 首先检查是否有获取链接按钮的data-id属性
+	doc.Find("button[id='downloadBtn']").Each(func(i int, s *goquery.Selection) {
+		if dataID, exists := s.Attr("data-id"); exists && dataID != "" {
+			// 使用transfer API获取真实链接
+			transferURL := fmt.Sprintf("%s/api/transfer?id=%s", APIBaseURL, dataID)
+			if p.isValidNetworkDriveURL(transferURL) {
+				links = append(links, model.Link{
+					Type:     p.determineLinkType(transferURL),
+					URL:      transferURL,
+					Password: "",
+				})
+			}
 		}
 	})
 
-	// Extract URLs embedded in script blocks.
-	doc.Find("script").Each(func(i int, s *goquery.Selection) {
-		scriptText := s.Text()
-		if scriptText != "" {
-			urls = append(urls, p.extractAllURLs(scriptText)...)
-		}
-	})
-
-	// Extract URLs from common data attributes and onclick handlers.
-	attrNames := []string{"href", "data-href", "data-url", "data-link", "value"}
-	doc.Find("*").Each(func(i int, s *goquery.Selection) {
-		for _, attr := range attrNames {
-			if v, ok := s.Attr(attr); ok {
-				urls = append(urls, p.extractAllURLs(v)...)
-				if p.isValidNetworkDriveURL(v) {
-					urls = append(urls, v)
+	// 2. 检查Server Action相关的数据属性
+	doc.Find("[data-action], [data-resource-id], [data-url]").Each(func(i int, s *goquery.Selection) {
+		if action, exists := s.Attr("data-action"); exists && strings.Contains(action, "deep") {
+			if resourceID, exists := s.Attr("data-resource-id"); exists {
+				// 使用深度搜索API获取链接
+				deepLink := p.fetchDeepLinkViaServerAction(nil, "quark", resourceID, "", "")
+				if len(deepLink) > 0 {
+					links = append(links, deepLink...)
 				}
 			}
 		}
-		if onclick, ok := s.Attr("onclick"); ok && onclick != "" {
-			urls = append(urls, p.extractAllURLs(onclick)...)
+	})
+
+	// 3. 检查JavaScript脚本中的链接
+	doc.Find("script").Each(func(i int, s *goquery.Selection) {
+		scriptText := s.Text()
+		if scriptText != "" {
+			// 提取JavaScript中的网盘链接
+			urls := p.extractAllURLs(scriptText)
+			for _, urlStr := range urls {
+				if p.isValidNetworkDriveURL(urlStr) && strings.HasPrefix(urlStr, "https://pan.quark.cn/s/") {
+					links = append(links, model.Link{
+						Type:     p.determineLinkType(urlStr),
+						URL:      urlStr,
+						Password: p.extractPasswordFromURL(urlStr),
+					})
+				}
+			}
 		}
 	})
 
-	// 过滤广告链接（活动福利社链接）
+	// 4. 检查隐藏的输入框和表单数据
+	doc.Find("input[type='hidden']").Each(func(i int, s *goquery.Selection) {
+		if name, exists := s.Attr("name"); exists && (name == "url" || name == "link" || name == "resource_id") {
+			if value, exists := s.Attr("value"); exists && p.isValidNetworkDriveURL(value) {
+				links = append(links, model.Link{
+					Type:     p.determineLinkType(value),
+					URL:      value,
+					Password: "",
+				})
+			}
+		}
+	})
+
+	// 5. 检查常见的链接元素
+	doc.Find("a[href]").Each(func(i int, s *goquery.Selection) {
+		href, exists := s.Attr("href")
+		if exists && p.isValidNetworkDriveURL(href) && strings.HasPrefix(href, "https://pan.quark.cn/s/") {
+			links = append(links, model.Link{
+				Type:     p.determineLinkType(href),
+				URL:      href,
+				Password: p.extractPasswordFromURL(href),
+			})
+		}
+	})
+
+	// 6. 过滤广告链接（活动福利社链接）
 	adURLs := map[string]bool{
 		"https://pan.quark.cn/s/14780f24015d": true,
 	}
 
-	for _, urlStr := range urls {
-		// 只保留 https://pan.quark.cn/s/ 格式的链接，且不是广告链接
-		if !strings.HasPrefix(urlStr, "https://pan.quark.cn/s/") || adURLs[urlStr] {
-			continue
-		}
-
-		linkType := p.determineLinkType(urlStr)
-		if linkType == "" {
-			continue
-		}
-
-		password := p.extractPasswordFromURL(urlStr)
-		if password == "" {
-			password = p.extractPasswordFromText(pageText)
-		}
-
-		link := model.Link{
-			Type:     linkType,
-			URL:      urlStr,
-			Password: password,
-		}
-
-		if !p.containsLink(links, link) {
-			links = append(links, link)
+	// 去重处理
+	uniqueLinks := make(map[string]model.Link)
+	for _, link := range links {
+		if !adURLs[link.URL] {
+			uniqueLinks[link.URL] = link
 		}
 	}
 
-	return links
+	// 转换为切片
+	finalLinks := make([]model.Link, 0, len(uniqueLinks))
+	for _, link := range uniqueLinks {
+		finalLinks = append(finalLinks, link)
+	}
+
+	return finalLinks
 }
 
 // extractRedirectCandidatesFromDocument 收集详情页中可能的中转地址（如 /go/xxx、/jump?url=...）。
