@@ -85,7 +85,7 @@ func createOptimizedHTTPClient() *http.Client {
 // NewWanouPlugin 创建插件实例。
 func NewWanouPlugin() *WanouAsyncPlugin {
 	return &WanouAsyncPlugin{
-		BaseAsyncPlugin: plugin.NewBaseAsyncPlugin("wanou", 1),
+		BaseAsyncPlugin: plugin.NewBaseAsyncPlugin("wanou", 2),
 		optimizedClient: createOptimizedHTTPClient(),
 	}
 }

@@ -114,11 +114,64 @@ set PORT=8889
 
 ### 反爬策略
 
-1. **随机请求延迟**：500-1500ms
-2. **轮换User-Agent**：7种浏览器
-3. **完整请求头设置**：模拟真实浏览器
-4. **Cookie会话管理**：保持会话状态
-5. **指数退避重试**：最多2次重试
+Pioz插件实现了完善的反爬虫机制，确保稳定获取网盘链接：
+
+#### 1. 请求延迟策略
+
+| 策略 | 延迟时间 | 说明 |
+|------|---------|------|
+| 单次请求延迟 | 1-2秒随机 | 模拟真实用户浏览行为 |
+| 关键词搜索间隔 | 15-20秒随机 | 不同关键词之间的搜索间隔 |
+
+#### 2. User-Agent轮换
+
+- **轮换频率**：每3次请求轮换一次
+- **UA池**：7种主流浏览器
+  - Chrome 120 (Windows)
+  - Chrome 119 (Windows)
+  - Chrome 120 (macOS)
+  - Firefox 120 (Windows)
+  - Edge 120 (Windows)
+  - Chrome 118 (Windows)
+  - Safari 17 (macOS)
+
+#### 3. 完整请求头设置
+
+模拟真实浏览器请求，包含：
+- Accept、Accept-Language、Accept-Encoding
+- Connection、Cache-Control、Pragma
+- Sec-Fetch-* 系列安全头
+
+#### 4. Cookie会话管理
+
+- 保持会话状态
+- 自动处理登录态
+
+#### 5. 指数退避重试
+
+- 最多2次重试
+- 自动处理临时故障
+
+#### 关键日志说明
+
+```
+[pioz] [反爬虫] 请求延迟: 1.50秒 (距离上次请求 0.30秒)
+[pioz] [反爬虫] 当前请求计数: 1
+[pioz] [反爬虫] 第3次请求，轮换User-Agent: Mozilla/5.0...
+[pioz] [反爬虫] 不同关键词搜索间隔: 等待 17.5 秒
+[pioz] [搜索] 开始搜索关键词: 电影名称
+[pioz] [增强] 成功获取链接: 标题 -> 1个链接
+[pioz] [增强]   链接1: https://pan.quark.cn/s/xxx
+```
+
+#### 代码实现位置
+
+| 功能 | 文件位置 | 函数 |
+|------|---------|------|
+| 请求延迟 | pioz.go | `applyAntiCrawlerDelay()` |
+| UA轮换 | pioz.go | `applyAntiCrawlerDelay()` |
+| 关键词间隔 | pioz.go | `searchImpl()` |
+| 链接获取 | pioz.go | `enhanceDeepSearchResults()` |
 
 ### 支持的网盘类型（16种）
 

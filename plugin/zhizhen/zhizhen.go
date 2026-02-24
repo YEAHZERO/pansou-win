@@ -101,7 +101,7 @@ func createOptimizedHTTPClient() *http.Client {
 // NewZhizhenPlugin 创建插件实例。
 func NewZhizhenPlugin() *ZhizhenAsyncPlugin {
 	return &ZhizhenAsyncPlugin{
-		BaseAsyncPlugin: plugin.NewBaseAsyncPlugin("zhizhen", 1),
+		BaseAsyncPlugin: plugin.NewBaseAsyncPlugin("zhizhen", 2),
 		optimizedClient: createOptimizedHTTPClient(),
 	}
 }

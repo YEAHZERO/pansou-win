@@ -71,7 +71,7 @@ const (
 	DataID404Threshold = 3
 
 	// 详情增强最多处理多少条结果，避免对目标站造成过大压力
-	MaxEnhancedResults = 10
+	MaxEnhancedResults = 50
 
 	// Next.js Server Action IDs (深度搜索功能)
 	DeepSearchActionID = "406ba109bf31d3d81924420f284be8a50f5694e5fc"
@@ -173,6 +173,8 @@ var (
 	sessionMutex    sync.RWMutex
 	lastRequestTime time.Time
 	requestCounter  int64
+	lastKeywordTime time.Time
+	lastKeyword     string
 )
 
 var (
@@ -233,7 +235,7 @@ func NewPiozPlugin() *PiozAsyncPlugin {
 	randomIndex := time.Now().UnixNano() % int64(len(userAgents))
 
 	return &PiozAsyncPlugin{
-		BaseAsyncPlugin:  plugin.NewBaseAsyncPluginWithFilter("pioz", 1, true),
+		BaseAsyncPlugin:  plugin.NewBaseAsyncPluginWithFilter("pioz", 2, true),
 		optimizedClient:  createOptimizedHTTPClient(),
 		userAgents:       userAgents,
 		currentUserAgent: userAgents[randomIndex],
@@ -609,6 +611,21 @@ func (p *PiozAsyncPlugin) searchImpl(client *http.Client, keyword string, ext ma
 		atomic.AddInt64(&totalSearchTime, duration)
 	}()
 
+	// 反爬虫策略：不同关键词搜索间隔15-20秒
+	if lastKeyword != keyword && lastKeyword != "" {
+		timeSinceLastKeyword := time.Since(lastKeywordTime)
+		keywordInterval := time.Duration(15000+time.Now().UnixNano()%5000) * time.Millisecond // 15-20秒随机间隔
+		if timeSinceLastKeyword < keywordInterval {
+			delay := keywordInterval - timeSinceLastKeyword
+			fmt.Printf("[%s] [反爬虫] 不同关键词搜索间隔: 等待 %.1f 秒\n", p.Name(), delay.Seconds())
+			fmt.Printf("[%s] [反爬虫] 上次关键词: %s, 当前关键词: %s\n", p.Name(), lastKeyword, keyword)
+			time.Sleep(delay)
+		}
+	}
+	lastKeyword = keyword
+	lastKeywordTime = time.Now()
+	fmt.Printf("[%s] [搜索] 开始搜索关键词: %s\n", p.Name(), keyword)
+
 	cacheKey := fmt.Sprintf("%s:%s", p.Name(), keyword)
 	if cached, ok := searchCache.Load(cacheKey); ok {
 		if cachedResp, ok := cached.(cachedResponse); ok {
@@ -653,37 +670,39 @@ func (p *PiozAsyncPlugin) searchImpl(client *http.Client, keyword string, ext ma
 		return enhancedResults, nil
 	}
 
-	p.applyAntiCrawlerDelay()
-	results, err = p.performRegularSearch(client, keyword)
-	if err == nil && len(results) > 0 {
-		enhancedResults := p.enhanceWithDetails(client, results)
-		// 确保至少返回原始结果数量，即使没有获取到链接
-		if len(enhancedResults) == 0 {
-			fmt.Printf("[%s] searchImpl: enhanceWithDetails返回空结果，使用原始结果\n", p.Name())
-			enhancedResults = results
-		}
-		searchCache.Store(cacheKey, cachedResponse{
-			results:   enhancedResults,
-			timestamp: time.Now(),
-		})
-		return enhancedResults, nil
-	}
+	// 普通搜索已禁用，只使用深度搜索
+	// p.applyAntiCrawlerDelay()
+	// results, err = p.performRegularSearch(client, keyword)
+	// if err == nil && len(results) > 0 {
+	// 	enhancedResults := p.enhanceWithDetails(client, results)
+	// 	// 确保至少返回原始结果数量，即使没有获取到链接
+	// 	if len(enhancedResults) == 0 {
+	// 		fmt.Printf("[%s] searchImpl: enhanceWithDetails返回空结果，使用原始结果\n", p.Name())
+	// 		enhancedResults = results
+	// 	}
+	// 	searchCache.Store(cacheKey, cachedResponse{
+	// 		results:   enhancedResults,
+	// 		timestamp: time.Now(),
+	// 	})
+	// 	return enhancedResults, nil
+	// }
 
-	p.applyAntiCrawlerDelay()
-	results, err = p.extractFromHotSearch(client, keyword)
-	if err == nil {
-		enhancedResults := p.enhanceWithDetails(client, results)
-		// 确保至少返回原始结果数量，即使没有获取到链接
-		if len(enhancedResults) == 0 {
-			fmt.Printf("[%s] searchImpl: enhanceWithDetails返回空结果，使用原始结果\n", p.Name())
-			enhancedResults = results
-		}
-		searchCache.Store(cacheKey, cachedResponse{
-			results:   enhancedResults,
-			timestamp: time.Now(),
-		})
-		return enhancedResults, nil
-	}
+	// 首页热搜已禁用，只使用深度搜索
+	// p.applyAntiCrawlerDelay()
+	// results, err = p.extractFromHotSearch(client, keyword)
+	// if err == nil {
+	// 	enhancedResults := p.enhanceWithDetails(client, results)
+	// 	// 确保至少返回原始结果数量，即使没有获取到链接
+	// 	if len(enhancedResults) == 0 {
+	// 		fmt.Printf("[%s] searchImpl: enhanceWithDetails返回空结果，使用原始结果\n", p.Name())
+	// 		enhancedResults = results
+	// 	}
+	// 	searchCache.Store(cacheKey, cachedResponse{
+	// 		results:   enhancedResults,
+	// 		timestamp: time.Now(),
+	// 	})
+	// 	return enhancedResults, nil
+	// }
 
 	// 所有搜索策略都失败，返回空结果列表而不是错误
 	fmt.Printf("[%s] 所有搜索策略都失败，返回空结果: %v\n", p.Name(), err)
@@ -1382,15 +1401,21 @@ func (p *PiozAsyncPlugin) parseDetailLink(a *goquery.Selection, index int) model
 
 // enhanceDeepSearchResults 增强深度搜索结果，尝试获取更多网盘链接
 // 深度搜索结果可能已经包含链接，此函数会尝试补充缺失的链接
+// 关键步骤：
+// 1. 检查结果是否已有链接
+// 2. 使用fetchResourceInfo获取网盘链接
+// 3. 缓存结果避免重复请求
 func (p *PiozAsyncPlugin) enhanceDeepSearchResults(client *http.Client, results []model.SearchResult) []model.SearchResult {
 	if len(results) == 0 {
 		return results
 	}
 
-	results = p.deduplicateResultsByResource(results)
+	fmt.Printf("[%s] [增强] 开始增强深度搜索结果，共 %d 个结果\n", p.Name(), len(results))
+
+	// results = p.deduplicateResultsByResource(results)
 
 	if len(results) > MaxEnhancedResults {
-		results = results[:MaxEnhancedResults]
+		fmt.Printf("[%s] [增强] 警告: 结果数量 %d 超过 MaxEnhancedResults=%d，将处理所有结果\n", p.Name(), len(results), MaxEnhancedResults)
 	}
 
 	var enhancedResults []model.SearchResult
@@ -1409,6 +1434,7 @@ func (p *PiozAsyncPlugin) enhanceDeepSearchResults(client *http.Client, results 
 			defer func() { <-semaphore }()
 
 			if len(r.Links) > 0 {
+				fmt.Printf("[%s] [增强] 结果已有链接: %s (%d个链接)\n", p.Name(), r.Title, len(r.Links))
 				mu.Lock()
 				enhancedResults = append(enhancedResults, r)
 				mu.Unlock()
@@ -1419,6 +1445,7 @@ func (p *PiozAsyncPlugin) enhanceDeepSearchResults(client *http.Client, results 
 
 			if cached, ok := detailCache.Load(r.UniqueID); ok {
 				if cachedResult, ok := cached.(model.SearchResult); ok {
+					fmt.Printf("[%s] [增强] 命中缓存: %s\n", p.Name(), r.Title)
 					mu.Lock()
 					enhancedResults = append(enhancedResults, cachedResult)
 					mu.Unlock()
@@ -1430,8 +1457,13 @@ func (p *PiozAsyncPlugin) enhanceDeepSearchResults(client *http.Client, results 
 			r.Links = links
 
 			if len(links) > 0 {
-				fmt.Printf("[%s] 深度搜索增强成功: %s -> %d个链接\n",
+				fmt.Printf("[%s] [增强] 成功获取链接: %s -> %d个链接\n",
 					p.Name(), r.Title, len(links))
+				for i, link := range links {
+					fmt.Printf("[%s] [增强]   链接%d: %s\n", p.Name(), i+1, link.URL)
+				}
+			} else {
+				fmt.Printf("[%s] [增强] 未获取到链接: %s\n", p.Name(), r.Title)
 			}
 
 			detailCache.Store(r.UniqueID, r)
@@ -1450,7 +1482,7 @@ func (p *PiozAsyncPlugin) enhanceDeepSearchResults(client *http.Client, results 
 			withLinks++
 		}
 	}
-	fmt.Printf("[%s] 深度搜索增强完成: 输入=%d, 输出=%d, 含链接=%d\n", p.Name(), len(results), len(enhancedResults), withLinks)
+	fmt.Printf("[%s] [增强] 深度搜索增强完成: 输入=%d, 输出=%d, 含链接=%d\n", p.Name(), len(results), len(enhancedResults), withLinks)
 	return enhancedResults
 }
 
@@ -1460,10 +1492,10 @@ func (p *PiozAsyncPlugin) enhanceWithDetails(client *http.Client, results []mode
 		return results
 	}
 
-	results = p.deduplicateResultsByResource(results)
+	// results = p.deduplicateResultsByResource(results)
 
 	if len(results) > MaxEnhancedResults {
-		results = results[:MaxEnhancedResults]
+		fmt.Printf("[%s] 警告: 结果数量 %d 超过 MaxEnhancedResults=%d，将处理所有结果\n", p.Name(), len(results), MaxEnhancedResults)
 	}
 
 	var enhancedResults []model.SearchResult
@@ -3217,18 +3249,24 @@ func (p *PiozAsyncPlugin) readCompressedBody(resp *http.Response) ([]byte, error
 // =========================
 
 // applyAntiCrawlerDelay 在请求前做动态节流，并定期轮换 UA。
+// 反爬虫策略：
+// 1. 1-2秒随机延迟 - 模拟真实用户行为
+// 2. 每3次请求轮换User-Agent - 避免被识别为爬虫
 func (p *PiozAsyncPlugin) applyAntiCrawlerDelay() {
 	now := time.Now()
 
 	timeSinceLast := now.Sub(lastRequestTime)
 
-	if timeSinceLast < RequestDelayMin {
-		delay := RequestDelayMin - timeSinceLast
+	minDelay := time.Duration(1000+time.Now().UnixNano()%1000) * time.Millisecond // 1-2秒随机延迟
 
-		randomDelay := time.Duration(time.Now().UnixNano()%500) * time.Millisecond
+	if timeSinceLast < minDelay {
+		delay := minDelay - timeSinceLast
+
+		randomDelay := time.Duration(1000+time.Now().UnixNano()%1000) * time.Millisecond // 额外1-2秒随机延迟
 		totalDelay := delay + randomDelay
 
 		if totalDelay > 0 {
+			fmt.Printf("[%s] [反爬虫] 请求延迟: %.2f秒 (距离上次请求 %.2f秒)\n", p.Name(), totalDelay.Seconds(), timeSinceLast.Seconds())
 			time.Sleep(totalDelay)
 		}
 	}
@@ -3236,9 +3274,12 @@ func (p *PiozAsyncPlugin) applyAntiCrawlerDelay() {
 	lastRequestTime = time.Now()
 
 	requestCount := atomic.AddInt64(&requestCounter, 1)
-	if requestCount%5 == 0 {
+	fmt.Printf("[%s] [反爬虫] 当前请求计数: %d\n", p.Name(), requestCount)
+
+	if requestCount%3 == 0 {
 		randomIndex := time.Now().UnixNano() % int64(len(p.userAgents))
 		p.currentUserAgent = p.userAgents[randomIndex]
+		fmt.Printf("[%s] [反爬虫] 第%d次请求，轮换User-Agent: %s\n", p.Name(), requestCount, p.currentUserAgent)
 	}
 }
 

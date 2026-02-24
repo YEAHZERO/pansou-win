@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/joho/godotenv"
 	"golang.org/x/net/netutil"
 
 	"pansou/api"
@@ -25,8 +26,10 @@ import (
 
 	// 以下是插件的空导入，用于触发各插件的init函数，实现自动注册
 	// 添加新插件时，只需在此处添加对应的导入语句即可
-	_ "pansou/plugin/pioz"
 	_ "pansou/plugin/pansearch"
+	_ "pansou/plugin/pioz"
+	_ "pansou/plugin/pioz2"
+	_ "pansou/plugin/pioz3"
 	_ "pansou/plugin/wanou"
 	_ "pansou/plugin/xdpan"
 	_ "pansou/plugin/zhizhen"
@@ -45,6 +48,8 @@ func main() {
 
 // initApp 初始化应用程序
 func initApp() {
+	godotenv.Load()
+
 	// 初始化配置
 	config.Init()
 

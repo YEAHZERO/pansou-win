@@ -74,3 +74,11 @@ __debug_bin
 *.backup
 *.pre_commentfix
 *~
+
+# ============ 测试结果文件 ============
+# 搜索测试结果JSON文件
+pioz*_search_*.json
+pioz*_test_*.json
+pioz*_results*.json
+*_search_results.json
+*_test_results.json
