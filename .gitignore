@@ -82,3 +82,5 @@ pioz*_test_*.json
 pioz*_results*.json
 *_search_results.json
 *_test_results.json
+test_result.json
+plugin/pioz/日志.md

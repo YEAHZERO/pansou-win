@@ -199,6 +199,8 @@ type PiozAsyncPlugin struct {
 	userAgents       []string
 	currentUserAgent string
 	linkPool         sync.Pool
+	currentKeyword   string
+	keywordMutex     sync.RWMutex
 }
 
 // createOptimizedHTTPClient 创建带连接池的 HTTP Client，并禁止自动跟随 30x（由调用者自行处理）。
@@ -610,6 +612,10 @@ func (p *PiozAsyncPlugin) searchImpl(client *http.Client, keyword string, ext ma
 		duration := time.Since(start).Nanoseconds()
 		atomic.AddInt64(&totalSearchTime, duration)
 	}()
+
+	p.keywordMutex.Lock()
+	p.currentKeyword = keyword
+	p.keywordMutex.Unlock()
 
 	// 反爬虫策略：不同关键词搜索间隔15-20秒
 	if lastKeyword != keyword && lastKeyword != "" {
@@ -1515,10 +1521,21 @@ func (p *PiozAsyncPlugin) enhanceWithDetails(client *http.Client, results []mode
 
 			p.applyAntiCrawlerDelay()
 
-			if cached, ok := detailCache.Load(r.UniqueID); ok {
-				if cachedResult, ok := cached.(model.SearchResult); ok {
+			var detailID string
+			if strings.Contains(r.UniqueID, "-deep-") {
+				detailID = p.resolveDetailIDByTitle(client, r.Title)
+			}
+
+			cacheKey := r.UniqueID
+			if detailID != "" {
+				cacheKey = fmt.Sprintf("detailID-%s", detailID)
+			}
+
+			if cached, ok := detailCache.Load(cacheKey); ok {
+				if cachedLinks, ok := cached.([]model.Link); ok {
+					r.Links = cachedLinks
 					mu.Lock()
-					enhancedResults = append(enhancedResults, cachedResult)
+					enhancedResults = append(enhancedResults, r)
 					mu.Unlock()
 					return
 				}
@@ -1528,11 +1545,11 @@ func (p *PiozAsyncPlugin) enhanceWithDetails(client *http.Client, results []mode
 			r.Links = links
 
 			if len(links) > 0 {
-				fmt.Printf("[%s] \u6210\u529f\u83b7\u53d6\u8d44\u6e90\u94fe\u63a5: %s -> %d\u4e2a\u94fe\u63a5\n",
+				fmt.Printf("[%s] 成功获取资源链接: %s -> %d个链接\n",
 					p.Name(), r.Title, len(links))
 			}
 
-			detailCache.Store(r.UniqueID, r)
+			detailCache.Store(cacheKey, links)
 
 			mu.Lock()
 			enhancedResults = append(enhancedResults, r)
@@ -1569,12 +1586,34 @@ func (p *PiozAsyncPlugin) fetchResourceInfo(client *http.Client, result model.Se
 		atomic.AddInt64(&totalDetailTime, duration)
 	}()
 
+	p.keywordMutex.RLock()
+	currentKeyword := p.currentKeyword
+	p.keywordMutex.RUnlock()
+
+	if currentKeyword == "" {
+		return nil
+	}
+
 	normalizedResult := result
+	var detailID string
 	if strings.Contains(result.UniqueID, "-deep-") {
-		if detailID := p.resolveDetailIDByTitle(client, result.Title); p.isLikelyDetailID(detailID) {
+		detailID = p.resolveDetailIDByTitle(client, result.Title)
+		if p.isLikelyDetailID(detailID) {
 			detailURL := fmt.Sprintf("%s/detail/%s", SiteBaseURL, detailID)
 			normalizedResult.UniqueID = fmt.Sprintf("%s-detail-%s", p.Name(), url.QueryEscape(detailURL))
 			fmt.Printf("[%s] deep-id映射: title=%s detailID=%s\n", p.Name(), result.Title, detailID)
+		}
+	}
+
+	cacheKey := normalizedResult.UniqueID
+	if detailID != "" {
+		cacheKey = fmt.Sprintf("detailID-%s", detailID)
+	}
+
+	if cached, ok := detailCache.Load(cacheKey); ok {
+		if cachedLinks, ok := cached.([]model.Link); ok {
+			fmt.Printf("[%s] detailID缓存命中: detailID=%s title=%s links=%d\n", p.Name(), detailID, result.Title, len(cachedLinks))
+			return cachedLinks
 		}
 	}
 
@@ -1584,30 +1623,30 @@ func (p *PiozAsyncPlugin) fetchResourceInfo(client *http.Client, result model.Se
 		return nil
 	}
 
-	// 1. 优先尝试新方式：通过data-id直接获取链接
 	links := p.tryDataIDMethod(client, normalizedResult)
 	if len(links) > 0 {
-		fmt.Printf("[%s] data-id方式命中: title=%s links=%d\n", p.Name(), result.Title, len(links))
+		fmt.Printf("[%s] data-id方式成功: id=%s link=%s\n", p.Name(), resourceID, links[0].URL)
+		detailCache.Store(cacheKey, links)
 		return links
 	}
 
-	// 2. 备用：transfer API
 	links = p.tryTransferAPI(client, normalizedResult)
 	if len(links) > 0 {
 		fmt.Printf("[%s] transfer命中: title=%s links=%d\n", p.Name(), result.Title, len(links))
+		detailCache.Store(cacheKey, links)
 		return links
 	}
 	if active, reason := p.isResourceFailureActive(resourceID); active && reason == "transfer_expired" {
 		return nil
 	}
 
-	// 3. 兜底：详情页解析（保留原来的二次跳转功能）
 	links = p.parseResourceDetailPage(client, normalizedResult)
 	if len(links) > 0 {
 		fmt.Printf("[%s] detail命中: title=%s links=%d\n", p.Name(), result.Title, len(links))
 	} else {
 		fmt.Printf("[%s] detail未命中: title=%s uniqueID=%s\n", p.Name(), result.Title, result.UniqueID)
 	}
+	detailCache.Store(cacheKey, links)
 	return links
 }
 
